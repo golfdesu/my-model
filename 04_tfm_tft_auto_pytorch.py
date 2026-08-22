@@ -115,6 +115,23 @@ y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).flatten()
 y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1, 1)).flatten()
 y_test_scaled  = scaler_y.transform(y_test.values.reshape(-1, 1)).flatten()
 
+# Known-future (calendar) inputs for the TFT decoder - deterministic functions of the
+# timestamp, so their values at forecast timesteps are known at inference (TFT paper, IJF 2021)
+FUTURE_KNOWN_COLS = [c for c in ['weekend', 'holiday', 'is_business_hour',
+                                 'Hour_sin', 'Hour_cos', 'DayOfWeek_sin', 'DayOfWeek_cos',
+                                 'Month_sin', 'Month_cos'] if c in df.columns]
+X_fk = df[FUTURE_KNOWN_COLS].astype('float32')
+
+X_fk_train = X_fk[:train_len]
+X_fk_val   = X_fk[train_len : train_len + val_len]
+X_fk_test  = X_fk[train_len + val_len :]
+
+scaler_fk = MinMaxScaler()
+X_fk_train_scaled = scaler_fk.fit_transform(X_fk_train)
+X_fk_val_scaled   = scaler_fk.transform(X_fk_val)
+X_fk_test_scaled  = scaler_fk.transform(X_fk_test)
+print(f"Known-future decoder inputs enabled: {len(FUTURE_KNOWN_COLS)} calendar features")
+
 # Compute Peak Load Threshold (Top 20% of TRAIN in actual kW)
 peak_threshold_kw = float(np.percentile(df['kWhDelivered'].iloc[:train_len], 80))
 print(f"Peak Load Threshold (Top 20% of TRAIN): {peak_threshold_kw:.4f} kW")
@@ -128,6 +145,14 @@ def create_windowed_tensors(X_data, y_data, lookback, horizon):
     X_t = torch.tensor(np.array(X_seq, dtype=np.float32))
     y_t = torch.tensor(np.array(y_seq, dtype=np.float32))
     return X_t, y_t, np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32)
+
+# Helper 1b: Future-known windows for the TFT decoder ([N, horizon, F_known])
+# aligned exactly with y_seq (same loop bounds as create_windowed_tensors)
+def create_future_known_tensors(Xfk_data, lookback, horizon):
+    fk_seq = []
+    for i in range(len(Xfk_data) - lookback - horizon + 1):
+        fk_seq.append(Xfk_data[i + lookback : i + lookback + horizon])
+    return torch.tensor(np.array(fk_seq, dtype=np.float32))
 
 # Helper: Positional Embedding Layer in PyTorch
 class PositionalEmbedding(nn.Module):
@@ -252,9 +277,37 @@ def pinball_loss(y_pred, y_true, quantiles=[0.1, 0.5, 0.9]):
     q = torch.tensor(quantiles, device=y_pred.device).view(1, 1, -1)
     return torch.mean(torch.max((q - 1) * error, q * error))
 
+# Helper: Interpretable Multi-Head Attention (TFT paper, IJF 2021 Sec 3.2)
+# - A single shared value matrix W_V is used by all heads
+# - Attention outputs are averaged over heads before the final projection W_O
+class InterpretableMultiHeadAttention(nn.Module):
+    def __init__(self, d_model, num_heads, dropout_rate):
+        super().__init__()
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, self.d_k)      # shared V across heads -> [.., d_attn]
+        self.out_proj = nn.Linear(self.d_k, d_model)    # W_O: d_attn -> d_model
+        self.dropout = nn.Dropout(dropout_rate)
+
+    def forward(self, query, key, value, attn_mask=None):
+        B, L_q, _ = query.shape
+        L_k = key.size(1)
+        qh = self.q_proj(query).view(B, L_q, self.num_heads, self.d_k).transpose(1, 2)  # [B,H,Lq,d_k]
+        kh = self.k_proj(key).view(B, L_k, self.num_heads, self.d_k).transpose(1, 2)    # [B,H,Lk,d_k]
+        v_shared = self.v_proj(value)                                                    # [B,Lk,d_attn]
+        scores = torch.matmul(qh, kh.transpose(-2, -1)) / (self.d_k ** 0.5)              # [B,H,Lq,Lk]
+        if attn_mask is not None:
+            scores = scores + attn_mask.to(scores.dtype)
+        attn = torch.softmax(scores, dim=-1)
+        head_out = torch.matmul(self.dropout(attn), v_shared.unsqueeze(1))               # [B,H,Lq,d_attn]
+        attn_avg = head_out.mean(dim=1)                                                  # average over heads
+        return self.out_proj(attn_avg), None
+
 # Helper: TFT Architecture PyTorch Module (Official IJF 2021 Seq2Seq TFT with Quantiles)
 class TFTModel(nn.Module):
-    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, num_layers=1, dropout_rate=0.1, quantiles=[0.1, 0.5, 0.9]):
+    def __init__(self, lookback, num_features, horizon, num_future_known=9, d_model=64, num_heads=4, num_layers=1, dropout_rate=0.1, quantiles=[0.1, 0.5, 0.9]):
         super().__init__()
         self.lookback = lookback
         self.horizon = horizon
@@ -263,14 +316,14 @@ class TFTModel(nn.Module):
 
         # 1. Variable Selection Networks for Encoder & Decoder
         self.vsn_enc = VariableSelectionNetwork(num_features, d_model, dropout_rate)
-        self.vsn_dec = VariableSelectionNetwork(num_features, d_model, dropout_rate)
+        self.vsn_dec = VariableSelectionNetwork(num_future_known, d_model, dropout_rate)
 
         # 2. Locality Processing: Seq2Seq LSTM (Encoder & Decoder LSTM)
         self.lstm_enc = nn.LSTM(d_model, d_model, num_layers=num_layers, batch_first=True)
         self.lstm_dec = nn.LSTM(d_model, d_model, num_layers=num_layers, batch_first=True)
 
-        # 3. Temporal Multi-Head Attention over Full Sequence (Lookback + Horizon)
-        self.mha = nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
+        # 3. Interpretable Temporal Multi-Head Attention over Full Sequence
+        self.mha = InterpretableMultiHeadAttention(d_model, num_heads, dropout_rate)
         self.drop_attn = nn.Dropout(dropout_rate)
         self.norm_attn = nn.LayerNorm(d_model)
 
@@ -286,15 +339,13 @@ class TFTModel(nn.Module):
         self.grn_post = GatedResidualNetwork(d_model, d_model, dropout_rate)
         self.out_head = nn.Linear(d_model, len(quantiles))
 
-    def forward(self, x):
-        # x: [batch, lookback, num_features]
-
-        # Construct Future Horizon Decoder Input Placeholder (Last-Step Continuation Baseline - Expand View)
-        dec_placeholder = x[:, -1:, :].expand(-1, self.horizon, -1)
+    def forward(self, x, x_future):
+        # x: [batch, lookback, num_features] past-observed inputs
+        # x_future: [batch, horizon, num_future_known] known-future calendar inputs
 
         # 1. Variable Selection
         vsn_enc_out = self.vsn_enc(x)                  # [batch, lookback, d_model]
-        vsn_dec_out = self.vsn_dec(dec_placeholder)   # [batch, horizon, d_model]
+        vsn_dec_out = self.vsn_dec(x_future)           # [batch, horizon, d_model]
 
         # 2. Seq2Seq LSTM Processing
         enc_out, (h_n, c_n) = self.lstm_enc(vsn_enc_out)
@@ -303,7 +354,7 @@ class TFTModel(nn.Module):
         # Concatenate Encoder & Decoder sequences -> [batch, lookback + horizon, d_model]
         full_seq = torch.cat([enc_out, dec_out], dim=1)
 
-        # 3. Causal Multi-Head Self-Attention over Full Sequence using Buffer Mask
+        # 3. Causal Interpretable Self-Attention over Full Sequence using Buffer Mask
         attn_out, _ = self.mha(full_seq, full_seq, full_seq, attn_mask=self.causal_mask)
         norm_seq = self.norm_attn(full_seq + self.drop_attn(attn_out))
 
@@ -331,9 +382,13 @@ X_train_t, y_train_t, _, _ = create_windowed_tensors(X_train_scaled, y_train_sca
 X_val_t, y_val_t, _, _     = create_windowed_tensors(X_val_scaled, y_val_scaled, LOOKBACK, HORIZON)
 X_test_t, y_test_t, X_test_seq, y_test_seq = create_windowed_tensors(X_test_scaled, y_test_scaled, LOOKBACK, HORIZON)
 
-train_dataset = TensorDataset(X_train_t, y_train_t)
-val_dataset   = TensorDataset(X_val_t, y_val_t)
-test_dataset  = TensorDataset(X_test_t, y_test_t)
+FK_train_t = create_future_known_tensors(X_fk_train_scaled, LOOKBACK, HORIZON)
+FK_val_t   = create_future_known_tensors(X_fk_val_scaled, LOOKBACK, HORIZON)
+FK_test_t  = create_future_known_tensors(X_fk_test_scaled, LOOKBACK, HORIZON)
+
+train_dataset = TensorDataset(X_train_t, FK_train_t, y_train_t)
+val_dataset   = TensorDataset(X_val_t, FK_val_t, y_val_t)
+test_dataset  = TensorDataset(X_test_t, FK_test_t, y_test_t)
 
 print(f"Starting Automated {len(SEEDS)}-Seed Loop for {output_md_filename} in PyTorch...")
 
@@ -355,7 +410,8 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     # Build Model
     QUANTILES = [0.1, 0.5, 0.9]
     P50_IDX = 1  # Index of quantile 0.5 (median) for baseline comparison
-    model = TFTModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, quantiles=QUANTILES).to(device)
+    model = TFTModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON,
+                     num_future_known=len(FUTURE_KNOWN_COLS), quantiles=QUANTILES).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
@@ -371,10 +427,10 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     for epoch in epoch_pbar:
         model.train()
         train_loss = 0.0
-        for batch_X, batch_y in train_loader:
-            batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+        for batch_X, batch_fk, batch_y in train_loader:
+            batch_X, batch_fk, batch_y = batch_X.to(device), batch_fk.to(device), batch_y.to(device)
             optimizer.zero_grad(set_to_none=True)
-            out = model(batch_X)
+            out = model(batch_X, batch_fk)
             loss = pinball_loss(out, batch_y, QUANTILES)
             loss.backward()
             optimizer.step()
@@ -386,9 +442,9 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         model.eval()
         val_loss = 0.0
         with torch.inference_mode():
-            for batch_X, batch_y in val_loader:
-                batch_X, batch_y = batch_X.to(device), batch_y.to(device)
-                out = model(batch_X)
+            for batch_X, batch_fk, batch_y in val_loader:
+                batch_X, batch_fk, batch_y = batch_X.to(device), batch_fk.to(device), batch_y.to(device)
+                out = model(batch_X, batch_fk)
                 loss = pinball_loss(out, batch_y, QUANTILES)
                 val_loss += loss.item() * batch_X.size(0)
         
@@ -417,9 +473,9 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     model.eval()
     y_pred_list = []
     with torch.inference_mode():
-        for batch_X, _ in test_loader:
-            batch_X = batch_X.to(device)
-            out = model(batch_X)
+        for batch_X, batch_fk, _ in test_loader:
+            batch_X, batch_fk = batch_X.to(device), batch_fk.to(device)
+            out = model(batch_X, batch_fk)
             y_pred_list.append(out.cpu().numpy())
     
     y_pred_all = np.vstack(y_pred_list)          # [N, horizon, 3] (P10, P50, P90)

@@ -121,6 +121,15 @@ y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).flatten()
 y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1, 1)).flatten()
 y_test_scaled  = scaler_y.transform(y_test.values.reshape(-1, 1)).flatten()
 
+# iTransformer (paper, ICLR 2024): each variate is a token and the shared head forecasts
+# EVERY variate's own future; the target's forecast is read from the target variate token.
+# The target series must therefore be one of the input variates -> append scaled y.
+TARGET_CH_IDX = X_train_scaled.shape[1]  # index of the appended target variate
+X_train_scaled = np.concatenate([X_train_scaled, y_train_scaled.reshape(-1, 1)], axis=1)
+X_val_scaled   = np.concatenate([X_val_scaled,   y_val_scaled.reshape(-1, 1)], axis=1)
+X_test_scaled  = np.concatenate([X_test_scaled,  y_test_scaled.reshape(-1, 1)], axis=1)
+print(f"Target variate appended at index {TARGET_CH_IDX} (total variates: {X_train_scaled.shape[1]})")
+
 peak_threshold_kw = float(np.percentile(df['kWhDelivered'].iloc[:train_len], 80))
 print(f"Peak Load Threshold (Top 20% of TRAIN): {peak_threshold_kw:.4f} kW")
 
@@ -173,21 +182,23 @@ class iTransformerModel(nn.Module):
         self.variate_proj = nn.Linear(lookback, d_model)
         self.drop_in = nn.Dropout(dropout_rate)
 
-        # Standard Transformer encoder — but applied over the feature/variate dimension
+        # Standard Transformer encoder — but applied over the feature/variate dimension.
+        # Official iTransformer (THUML): post-norm layers + GELU activation
+        # + a FINAL LayerNorm after the whole stack (Encoder(norm_layer=LayerNorm)).
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model, nhead=num_heads, dim_feedforward=d_ff,
-            dropout=dropout_rate, batch_first=True, activation='relu'
+            dropout=dropout_rate, batch_first=True, activation='gelu'
         )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer, num_layers=num_layers,
+            norm=nn.LayerNorm(d_model)   # official: final LayerNorm over variate tokens
+        )
 
         # Project each variate's encoded representation -> forecast horizon
         self.output_proj = nn.Linear(d_model, horizon)
 
-        # Learnable weighted aggregation across variates -> single target forecast
-        self.variate_agg = nn.Linear(num_features, 1)
-
     def forward(self, x):
-        # x: [batch, lookback, num_features]
+        # x: [batch, lookback, num_features] - last variate is the appended target series
 
         # Invert: treat each variate as a token
         x = x.transpose(1, 2)                          # [batch, num_features, lookback]
@@ -201,8 +212,8 @@ class iTransformerModel(nn.Module):
         # Project each variate's representation to the forecast horizon
         x = self.output_proj(x)                        # [batch, num_features, horizon]
 
-        # Aggregate across variates: [batch, horizon, num_features] -> [batch, horizon]
-        x = self.variate_agg(x.transpose(1, 2)).squeeze(-1)  # [batch, horizon]
+        # Paper-faithful: read the forecast directly from the target variate token
+        x = x[:, TARGET_CH_IDX, :]                     # [batch, horizon]
         return x
 
 # ---------------------------------------------------------

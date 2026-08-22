@@ -115,6 +115,16 @@ y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).flatten()
 y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1, 1)).flatten()
 y_test_scaled  = scaler_y.transform(y_test.values.reshape(-1, 1)).flatten()
 
+# PatchTST multivariate (paper, ICLR 2023): channel-independent - EVERY input channel
+# forecasts its own future, and the target channel's forecast is the model output.
+# The target series must therefore be one of the input channels -> append scaled y
+# as the last channel. Loss/evaluation read only that channel (normalized domain).
+TARGET_CH_IDX = X_train_scaled.shape[1]  # index of the appended target channel
+X_train_scaled = np.concatenate([X_train_scaled, y_train_scaled.reshape(-1, 1)], axis=1)
+X_val_scaled   = np.concatenate([X_val_scaled,   y_val_scaled.reshape(-1, 1)], axis=1)
+X_test_scaled  = np.concatenate([X_test_scaled,  y_test_scaled.reshape(-1, 1)], axis=1)
+print(f"Target channel appended at index {TARGET_CH_IDX} (total input channels: {X_train_scaled.shape[1]})")
+
 # Compute Peak Load Threshold (Top 20% of TRAIN in actual kW)
 peak_threshold_kw = float(np.percentile(df['kWhDelivered'].iloc[:train_len], 80))
 print(f"Peak Load Threshold (Top 20% of TRAIN): {peak_threshold_kw:.4f} kW")
@@ -251,7 +261,7 @@ class PatchTSTModel(nn.Module):
         self.head = ChannelIndependentHead(num_features=num_features, horizon=horizon, num_patches=num_patches, d_model=d_model)
 
     def forward(self, x):
-        # x: [batch, lookback, num_features]
+        # x: [batch, lookback, num_features] - last channel is the appended target series
         batch_size = x.size(0)
         x_norm = self.revin(x, mode='norm')
         x_ci = self.channel_indep(x_norm)
@@ -261,9 +271,10 @@ class PatchTSTModel(nn.Module):
         x_drop = self.drop(x_pos)
 
         enc_out = self.encoder(x_drop)
-        dec_out_norm = self.head(enc_out, batch_size) # [batch, horizon, num_features]
-        dec_out = self.revin(dec_out_norm, mode='denorm') # [batch, horizon, num_features] - RevIN Inverse Denormalize
-        out = torch.mean(dec_out, dim=-1) # [batch, horizon] - Channel Consensus Forecast
+        ch_out = self.head(enc_out, batch_size)      # [batch, horizon, num_features]
+        # Paper-faithful channel independence: every channel forecasts its own future,
+        # so the model output is ONLY the target channel's forecast (normalized domain).
+        out = ch_out[:, :, TARGET_CH_IDX]            # [batch, horizon]
         return out
 
 

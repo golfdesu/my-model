@@ -9,7 +9,6 @@
 
 import sys
 import os
-import sys
 if hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -88,6 +87,7 @@ if not os.path.exists(data_path):
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
+df = df.sort_index()  # safety: enforce chronological order before time-based split
 
 # Drop unneeded columns
 df = df.drop(columns=['prcp', 'tempDiff_48', 'cldc'], errors='ignore')
@@ -151,15 +151,20 @@ def create_windowed_tensors(X_data, y_data, lookback, horizon):
 
 
 
-# Helper 2: Positional Embedding Layer in PyTorch
+# Helper 2: Sinusoidal Positional Encoding (Vaswani et al., NIPS 2017, Sec 3.5)
+# Paper-faithful: fixed sinusoids instead of learned embedding
 class PositionalEmbedding(nn.Module):
     def __init__(self, seq_len, d_model):
         super().__init__()
-        self.pos_emb = nn.Embedding(seq_len, d_model)
+        pe = torch.zeros(seq_len, d_model)
+        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term[:pe[:, 1::2].size(1)])
+        self.register_buffer('pe', pe.unsqueeze(0))  # [1, seq_len, d_model]
     def forward(self, x):
         # x shape: [batch, seq_len, d_model]
-        positions = torch.arange(0, x.size(1), device=x.device)
-        return x + self.pos_emb(positions)
+        return x + self.pe[:, :x.size(1), :]
 
 # Helper 3: PyTorch Gaussian Noise Layer
 class GaussianNoise(nn.Module):
@@ -254,6 +259,9 @@ output_md_filename = "01_tfm_tfm_pytorch.md"
 steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
+# Truncate output file so re-running the script does not stack duplicate results
+open(output_md_filename, "w", encoding="utf-8").close()
+
 print('Pre-building sequence tensors...')
 X_train_t, y_train_t, _, _ = create_windowed_tensors(X_train_scaled, y_train_scaled, LOOKBACK, HORIZON)
 X_val_t, y_val_t, _, _     = create_windowed_tensors(X_val_scaled, y_val_scaled, LOOKBACK, HORIZON)
@@ -288,7 +296,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     # Mandatory Warmup pass: Will raise InductorError if C++ compiler (cl.exe) is missing
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)  # consistent with the rest of the benchmark (was 1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)
@@ -309,7 +317,6 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
             loss = criterion(out, batch_y)
             loss.backward()
             optimizer.step()
-            time.sleep(0.005)  # Rest GPU per batch to keep temperature cool
             train_loss += loss.item() * batch_X.size(0)
 
         train_loss /= len(train_loader.dataset)
@@ -322,7 +329,6 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
                 batch_X, batch_y = batch_X.to(device), batch_y.to(device)
                 out = model(batch_X)
                 loss = criterion(out, batch_y)
-                time.sleep(0.002)
                 val_loss += loss.item() * batch_X.size(0)
 
         val_loss /= len(val_loader.dataset)

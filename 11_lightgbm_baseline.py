@@ -47,6 +47,7 @@ if not os.path.exists(data_path):
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
+df = df.sort_index()  # safety: enforce chronological order before time-based split
 df = df.drop(columns=['prcp', 'tempDiff_48', 'cldc'], errors='ignore')
 
 cols = []
@@ -97,6 +98,9 @@ HORIZON = 48       # 24 hours forecast (48 * 30 min)
 output_md_filename = "11_lightgbm_baseline.md"
 steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
+
+# Truncate output file so re-running the script does not stack duplicate results
+open(output_md_filename, "w", encoding="utf-8").close()
 
 # ---------------------------------------------------------------
 # Windowing: flatten [lookback, num_features] into a single feature vector per sample
@@ -159,6 +163,10 @@ LGB_PARAMS = dict(
     max_depth=-1,
     min_child_samples=20,
     subsample=0.8,
+    # CRITICAL: LightGBM only enables bagging when subsample_freq > 0.
+    # Without this, subsample=0.8 is silently ignored (data used 100% every tree),
+    # making the XGBoost comparison unfair. freq=1 = resample every iteration.
+    subsample_freq=1,
     colsample_bytree=0.8,
     reg_alpha=0.0,
     reg_lambda=0.0,

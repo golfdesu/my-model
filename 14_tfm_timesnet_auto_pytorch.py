@@ -189,28 +189,37 @@ class TimesBlock(nn.Module):
         # x: [B, T, C]
         B, T, C = x.size()
 
-        # FFT on mean across channels to find dominant periods
-        x_mean = x.mean(dim=-1)                # [B, T]
-        xf     = torch.fft.rfft(x_mean, dim=1) # [B, T//2+1]
-        freq_abs = xf.abs().mean(dim=0)        # [T//2+1] — average over batch
-        freq_abs[0] = 0                         # remove DC component
-        top_k_actual = min(self.top_k, freq_abs.size(0) - 1)
-        _, top_freq_idx = torch.topk(freq_abs, top_k_actual)
+        # FFT-based period detection (official impl.: amplitude averaged over
+        # batch & channels before selecting top-k frequencies)
+        xf = torch.fft.rfft(x.mean(dim=-1), dim=1)   # [B, T//2+1]
+        amp_all = xf.abs()                            # per-sample amplitudes [B, F]
+        freq_scores = torch.cat(
+            [torch.zeros_like(amp_all[:, :1]), amp_all[:, 1:]], dim=1
+        ).mean(dim=0)                                 # drop DC (no in-place op) + batch mean -> [F]
+        top_k_actual = min(self.top_k, freq_scores.size(0) - 1)
+        _, top_freq_idx = torch.topk(freq_scores, top_k_actual)
 
-        # Convert frequency indices to period lengths
+        # Paper (ICLR 2023): ADAPTIVE aggregation - each period weighted by
+        # softmax of its FFT amplitude, not a flat mean
         period_list = []
+        weights_list = []
         for idx in top_freq_idx.detach().cpu().numpy():
             p = T // max(int(idx), 1)
             if p >= 2:
                 period_list.append(p)
+                weights_list.append(amp_all[:, int(idx)].mean())  # scalar tensor (differentiable path kept simple)
         if not period_list:
-            period_list = [48]  # fallback to known daily period
+            period_list = [48]                        # fallback to known daily period
+            weights_list = None
 
         res_list = []
         for period in period_list:
-            # Pad to make T divisible by period
+            # Pad to make T divisible by period (replicate padding, official impl.)
             pad_len = (period - T % period) % period
-            xp = F.pad(x, (0, 0, 0, pad_len)) if pad_len > 0 else x  # [B, T+pad, C]
+            if pad_len > 0:
+                xp = F.pad(x.transpose(1, 2), (0, pad_len), mode='replicate').transpose(1, 2)
+            else:
+                xp = x                                # [B, T+pad, C]
             Tp = T + pad_len
 
             # Reshape 1D -> 2D: [B, C, num_cycles, period]
@@ -224,8 +233,12 @@ class TimesBlock(nn.Module):
             xp = xp[:, :T, :]                  # trim back to T
             res_list.append(xp)
 
-        # Aggregate all period representations
-        res = torch.stack(res_list, dim=-1).mean(dim=-1)  # [B, T, C]
+        res_stack = torch.stack(res_list, dim=-1)     # [B, T, C, k]
+        if weights_list is not None:
+            w = torch.softmax(torch.stack(weights_list), dim=0)   # [k] adaptive weights
+            res = (res_stack * w.view(1, 1, 1, -1)).sum(dim=-1)
+        else:
+            res = res_stack.mean(dim=-1)
         return self.norm(x + res)
 
 
@@ -249,22 +262,21 @@ class TimesNetModel(nn.Module):
         ])
         self.norm = nn.LayerNorm(d_model)
 
-        # Prediction head: global average pool + 2-layer MLP
-        self.head = nn.Sequential(
-            nn.Linear(d_model, 128),
-            nn.GELU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(128, horizon)
-        )
+        # Official TimesNet forecasting head (thuml/Time-Series-Library):
+        #   predict_linear projects along the TIME axis (keeps temporal order/resolution),
+        #   then target_proj maps d_model -> 1 (target series). NO temporal pooling.
+        self.predict_linear = nn.Linear(lookback, horizon)   # time-axis projection: [B, d, L] -> [B, d, H]
+        self.target_proj = nn.Linear(d_model, 1)             # per-timestep projection to the target series
 
     def forward(self, x):
         # x: [batch, lookback, num_features]
         x = self.drop(self.proj_in(x))   # [batch, lookback, d_model]
         for block in self.blocks:
             x = block(x)
-        x = self.norm(x)
-        x = x.mean(dim=1)               # global avg pool over time: [batch, d_model]
-        return self.head(x)             # [batch, horizon]
+        x = self.norm(x)                                             # [B, L, d]
+        x = self.predict_linear(x.transpose(1, 2)).transpose(1, 2)   # [B, H, d] — temporal projection
+        out = self.target_proj(x).squeeze(-1)                        # [B, H]
+        return out
 
 # ---------------------------------------------------------
 # 4. Config & Tensor Pre-build
