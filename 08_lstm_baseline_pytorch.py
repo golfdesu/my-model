@@ -58,19 +58,6 @@ if device.type == 'cuda':
 else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
-# Auto-load MSVC environment (PATH, INCLUDE, LIB) for torch.compile()
-vcvars_path = r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-if os.path.exists(vcvars_path):
-    try:
-        msvc_env = subprocess.check_output(f'cmd.exe /c ""{vcvars_path}" && set"', text=True)
-        for line in msvc_env.splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                os.environ[k] = v
-    except Exception:
-        pass
-
-
 # Load and clean dataset (Local path auto-detect for VS Code)
 data_path = 'acn_caltech_ready.csv'
 if not os.path.exists(data_path):

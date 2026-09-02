@@ -60,19 +60,6 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 
-# Auto-load MSVC environment (PATH, INCLUDE, LIB) for torch.compile()
-vcvars_path = r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-if os.path.exists(vcvars_path):
-    try:
-        msvc_env = subprocess.check_output(f'cmd.exe /c ""{vcvars_path}" && set"', text=True)
-        for line in msvc_env.splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                os.environ[k] = v
-    except Exception:
-        pass
-
-
 # In[2]:
 
 
@@ -293,15 +280,9 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
     test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-    # Build Model & Enforce Mandatory torch.compile() with C++ Compiler (cl.exe)
     model = EncoderOnlyTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON).to(device)
 
 
-    if device.type == 'cuda' and hasattr(torch, 'compile'):
-        try:
-            model = torch.compile(model)
-        except Exception:
-            pass
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)  # consistent with the rest of the benchmark (was 1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)

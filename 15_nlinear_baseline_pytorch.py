@@ -199,11 +199,6 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     model = NLinear(lookback=LOOKBACK, horizon=HORIZON).to(device)
 
 
-    if device.type == 'cuda' and hasattr(torch, 'compile'):
-        try:
-            model = torch.compile(model)
-        except Exception:
-            pass
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if seed_idx == 1:
         print(f"Model Parameters: {total_params:,}  (NLinear: minimal by design)")

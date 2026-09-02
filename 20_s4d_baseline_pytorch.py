@@ -275,11 +275,6 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     model = S4DModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, d_state=64, num_layers=2).to(device)
 
 
-    if device.type == 'cuda' and hasattr(torch, 'compile'):
-        try:
-            model = torch.compile(model)
-        except Exception:
-            pass
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
