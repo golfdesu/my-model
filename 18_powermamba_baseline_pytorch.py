@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # LSTM Baseline (Encoder-only, Direct Multi-Step Head)
-# Deep learning baseline WITHOUT attention - mirrors 01_tfm_tfm_auto_pytorch.py
-# (Baseline Vanilla Transformer) exactly except the core sequence layer is swapped
-# from nn.TransformerEncoder to nn.LSTM. This isolates "attention vs recurrence"
-# as the single variable being compared.
+# # PowerMamba Baseline (Series Decomposition + Dual-Path Selective SSM)
+# Time-series forecasting model based on PowerMamba (Menati et al., 2024).
+# Disentangles complex EV charging load curves via moving average series decomposition,
+# routing seasonal variations to a pure Selective SSM and trend components to a Linear head.
 
 import sys
 import os
@@ -41,7 +40,7 @@ warnings.filterwarnings('ignore')
 
 # CPU Multithreading Speed Optimization
 num_cpus = os.cpu_count() or 4
-torch.set_num_threads(6)
+torch.set_num_threads(min(6, num_cpus))
 try:
     torch.set_num_interop_threads(1)
 except RuntimeError:
@@ -52,31 +51,23 @@ print("PyTorch Version:", torch.__version__)
 print("Using Device:", device)
 if device.type == 'cuda':
     print("GPU Model:", torch.cuda.get_device_name(0))
-    torch.cuda.set_per_process_memory_fraction(0.5, device=0)  # VRAM Limit 50%
+    try:
+        torch.cuda.set_per_process_memory_fraction(0.5, device=0)
+    except Exception:
+        pass
 else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
-# Auto-load MSVC environment (PATH, INCLUDE, LIB) for torch.compile()
-vcvars_path = r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-if os.path.exists(vcvars_path):
-    try:
-        msvc_env = subprocess.check_output(f'cmd.exe /c ""{vcvars_path}" && set"', text=True)
-        for line in msvc_env.splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                os.environ[k] = v
-    except Exception:
-        pass
-
-
-# Load and clean dataset (Local path auto-detect for VS Code)
-data_path = 'acn_caltech_ready.csv'
+# Load and clean dataset (Local path auto-detect)
+data_path = 'acn_caltech_ready2.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready2.csv'
+    data_path = 'acn_caltech_ready.csv'
 if not os.path.exists(data_path):
     data_path = '../preprocess/acn_caltech_ready.csv'
 if not os.path.exists(data_path):
     data_path = '../preprocess/acn_caltech_ready2.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_caltech_ready2.csv'
 if not os.path.exists(data_path):
     data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready.csv'
 if not os.path.exists(data_path):
@@ -85,6 +76,7 @@ if not os.path.exists(data_path):
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
+df = df.sort_index()
 
 # Drop unneeded columns
 df = df.drop(columns=['prcp', 'tempDiff_48', 'cldc'], errors='ignore')
@@ -112,13 +104,13 @@ y_train = y[:train_len]
 y_val   = y[train_len : train_len + val_len]
 y_test  = y[train_len + val_len :]
 
-# Feature Scaling (MinMaxScaler)
+# Feature Scaling (MinMaxScaler fitted ONLY on train split)
 scaler_X = MinMaxScaler()
 X_train_scaled = scaler_X.fit_transform(X_train)
 X_val_scaled   = scaler_X.transform(X_val)
 X_test_scaled  = scaler_X.transform(X_test)
 
-# Target Scaling (MinMaxScaler for y)
+# Target Scaling (MinMaxScaler for y fitted ONLY on train split)
 scaler_y = MinMaxScaler()
 y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).flatten()
 y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1, 1)).flatten()
@@ -138,69 +130,106 @@ def create_windowed_tensors(X_data, y_data, lookback, horizon):
     y_t = torch.tensor(np.array(y_seq, dtype=np.float32))
     return X_t, y_t, np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32)
 
-# Helper 2: PyTorch Gaussian Noise Layer (kept identical to Baseline Transformer for fair comparison)
-class GaussianNoise(nn.Module):
-    def __init__(self, stddev=0.05):
+# Helper 2: Series Decomposition Layer
+class SeriesDecomp(nn.Module):
+    def __init__(self, kernel_size=25):
         super().__init__()
-        self.stddev = stddev
-    def forward(self, x):
-        if self.training and self.stddev > 0:
-            noise = torch.randn_like(x) * self.stddev
-            return x + noise
-        return x
+        self.kernel_size = kernel_size
+        self.avg_pool = nn.AvgPool1d(kernel_size=kernel_size, stride=1)
 
-# Helper 3: LSTM Encoder-Only Architecture in PyTorch
-# Mirrors EncoderOnlyTransformer (01_tfm_tfm_auto_pytorch.py) exactly, except
-# nn.TransformerEncoder -> nn.LSTM (no attention, no positional embedding needed
-# since LSTM is inherently sequential/order-aware).
-class LSTMBaseline(nn.Module):
-    def __init__(self, lookback, num_features, horizon, d_model=64, num_layers=2,
-                 dropout_rate=0.2, noise_stddev=0.05):
+    def forward(self, x):
+        front = x[:, :1, :].repeat(1, (self.kernel_size - 1) // 2, 1)
+        end = x[:, -1:, :].repeat(1, self.kernel_size - 1 - (self.kernel_size - 1) // 2, 1)
+        x_pad = torch.cat([front, x, end], dim=1)
+        trend = self.avg_pool(x_pad.transpose(1, 2)).transpose(1, 2)
+        seasonal = x - trend
+        return seasonal, trend
+
+class PureSelectiveSSM(nn.Module):
+    def __init__(self, d_model, d_state=16):
+        super().__init__()
+        self.d_model = d_model
+        self.d_state = d_state
+
+        A = torch.arange(1, d_state + 1, dtype=torch.float32).repeat(d_model, 1)
+        self.A_log = nn.Parameter(torch.log(A))
+        self.D = nn.Parameter(torch.ones(d_model))
+
+        self.x_proj = nn.Linear(d_model, d_state * 2 + d_model, bias=False)
+        self.dt_proj = nn.Linear(d_model, d_model, bias=True)
+
+    def forward(self, x):
+        batch, seq_len, d_model = x.shape
+        A = -torch.exp(self.A_log)
+
+        x_proj = self.x_proj(x)
+        delta_in, B_t, C_t = torch.split(
+            x_proj, [self.d_model, self.d_state, self.d_state], dim=-1
+        )
+        delta = F.softplus(self.dt_proj(delta_in))
+
+        delta_exp = delta.unsqueeze(-1)
+        A_bar = torch.exp(delta_exp * A.unsqueeze(0).unsqueeze(0))
+        B_bar = delta_exp * B_t.unsqueeze(2)
+
+        h = torch.zeros(batch, d_model, self.d_state, device=x.device)
+        y_list = []
+        for t in range(seq_len):
+            h = A_bar[:, t] * h + B_bar[:, t] * x[:, t].unsqueeze(-1)
+            y_t = torch.sum(h * C_t[:, t].unsqueeze(1), dim=-1)
+            y_list.append(y_t)
+
+        y = torch.stack(y_list, dim=1) + x * self.D
+        return y
+
+class PowerMambaBlock(nn.Module):
+    def __init__(self, d_model, d_state=16, kernel_size=25, dropout_rate=0.1):
+        super().__init__()
+        self.decomp = SeriesDecomp(kernel_size=kernel_size)
+        self.ssm_seasonal = PureSelectiveSSM(d_model, d_state)
+        self.linear_trend = nn.Linear(d_model, d_model)
+        self.norm = nn.LayerNorm(d_model)
+        self.drop = nn.Dropout(dropout_rate)
+
+    def forward(self, x):
+        seasonal, trend = self.decomp(x)
+        s_out = self.ssm_seasonal(seasonal)
+        t_out = self.linear_trend(trend)
+        out = self.drop(s_out + t_out)
+        return self.norm(x + out)
+
+class PowerMambaModel(nn.Module):
+    def __init__(self, lookback, num_features, horizon, d_model=64, d_state=16, kernel_size=25, num_layers=2, dropout_rate=0.1):
         super().__init__()
         self.feature_proj = nn.Linear(num_features, d_model)
-        self.gaussian_noise = GaussianNoise(stddev=noise_stddev)
-        self.dropout = nn.Dropout(dropout_rate)
-
-        # Core sequence layer: LSTM instead of Transformer encoder.
-        # dropout applies between LSTM layers only when num_layers > 1 (PyTorch convention).
-        self.lstm = nn.LSTM(
-            input_size=d_model,
-            hidden_size=d_model,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout_rate if num_layers > 1 else 0.0,
-        )
-
-        # Head: identical structure to EncoderOnlyTransformer's head
-        # (dual aggregation: last-step + global average pooling)
+        self.blocks = nn.ModuleList([
+            PowerMambaBlock(d_model=d_model, d_state=d_state, kernel_size=kernel_size, dropout_rate=dropout_rate)
+            for _ in range(num_layers)
+        ])
         self.head_fc1 = nn.Linear(d_model * 2, 128)
-        self.head_dropout1 = nn.Dropout(dropout_rate)
+        self.head_drop1 = nn.Dropout(dropout_rate)
         self.head_fc2 = nn.Linear(128, 64)
-        self.head_dropout2 = nn.Dropout(dropout_rate)
+        self.head_drop2 = nn.Dropout(dropout_rate)
         self.out_proj = nn.Linear(64, horizon)
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        # x: [batch, lookback, num_features]
         x = self.feature_proj(x)
-        x = self.gaussian_noise(x)
-        x = self.dropout(x)
+        for block in self.blocks:
+            x = block(x)
 
-        lstm_out, _ = self.lstm(x)  # [batch, lookback, d_model]
+        last_feat = x[:, -1, :]
+        avg_feat = torch.mean(x, dim=1)
+        ctx = torch.cat([last_feat, avg_feat], dim=-1)
 
-        # Dual Feature Aggregation (Last step + Global Average Pooling) - same as Transformer baseline
-        last_step_feat = lstm_out[:, -1, :]
-        global_avg_feat = torch.mean(lstm_out, dim=1)
-        context = torch.cat([last_step_feat, global_avg_feat], dim=-1)
-
-        h = self.relu(self.head_fc1(context))
-        h = self.head_dropout1(h)
+        h = self.relu(self.head_fc1(ctx))
+        h = self.head_drop1(h)
         h = self.relu(self.head_fc2(h))
-        h = self.head_dropout2(h)
+        h = self.head_drop2(h)
         out = self.out_proj(h)
         return out
 
-# Helper 4: Metrics Evaluator Function
+# Helper: Metrics Evaluator Function
 def compute_metrics(actual, predicted, peak_threshold):
     mae = mean_absolute_error(actual, predicted)
     rmse = np.sqrt(mean_squared_error(actual, predicted))
@@ -219,14 +248,13 @@ def compute_metrics(actual, predicted, peak_threshold):
 
     return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak)
 
-
 import time
-# Config Parameters (identical to Baseline Transformer)
+# Config Parameters
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
 BATCH_SIZE = 256
 SEEDS = [164, 256, 355, 1234, 2026]
-output_md_filename = "08_lstm_baseline_pytorch.md"
+output_md_filename = "18_powermamba_baseline_pytorch.md"
 steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
@@ -239,31 +267,32 @@ train_dataset = TensorDataset(X_train_t, y_train_t)
 val_dataset   = TensorDataset(X_val_t, y_val_t)
 test_dataset  = TensorDataset(X_test_t, y_test_t)
 
+with open(output_md_filename, "w", encoding="utf-8") as f:
+    f.write(f"# PowerMamba Baseline PyTorch Benchmark Results\n\n- Lookback: {LOOKBACK}\n- Horizon: {HORIZON}\n- Batch Size: {BATCH_SIZE}\n- Seeds: {SEEDS}\n\n")
+
 print(f"Starting Automated {len(SEEDS)}-Seed Loop for {output_md_filename} in PyTorch...")
+
+all_seed_metrics = []
 
 for seed_idx, SEED in enumerate(SEEDS, 1):
     print(f"\n=========================================================================")
     print(f"RUNNING SEED {SEED} ({seed_idx}/{len(SEEDS)})")
     print(f"=========================================================================")
 
-    # Set random seeds for reproducibility
     torch.manual_seed(SEED)
     torch.cuda.manual_seed_all(SEED)
     np.random.seed(SEED)
 
-    # Pre-built Dataset DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
     val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
     test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
 
-    # Build Model
-    model = LSTMBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON).to(device)
+    model = PowerMambaModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, d_state=16, kernel_size=25, num_layers=2).to(device)
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
-    # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)
     epochs = 100
     patience = 15
     best_val_loss = float('inf')
@@ -281,12 +310,10 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
             loss = criterion(out, batch_y)
             loss.backward()
             optimizer.step()
-            time.sleep(0.005)  # Rest GPU per batch to keep temperature cool
             train_loss += loss.item() * batch_X.size(0)
 
         train_loss /= len(train_loader.dataset)
 
-        # Validation
         model.eval()
         val_loss = 0.0
         with torch.inference_mode():
@@ -294,20 +321,17 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
                 batch_X, batch_y = batch_X.to(device), batch_y.to(device)
                 out = model(batch_X)
                 loss = criterion(out, batch_y)
-                time.sleep(0.002)
                 val_loss += loss.item() * batch_X.size(0)
 
         val_loss /= len(val_loader.dataset)
         scheduler.step(val_loss)
 
-        # Dynamic tqdm bar update
         epoch_pbar.set_postfix({'train_loss': f"{train_loss:.5f}", 'val_loss': f"{val_loss:.5f}"})
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
-            target_model = model._orig_mod if hasattr(model, '_orig_mod') else model
-            best_model_weights = {k: v.cpu().clone() for k, v in target_model.state_dict().items()}
+            best_model_weights = {k: v.cpu().clone() for k, v in model.state_dict().items()}
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -315,10 +339,8 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
                 break
 
     if best_model_weights is not None:
-        target_model = model._orig_mod if hasattr(model, '_orig_mod') else model
-        target_model.load_state_dict(best_model_weights)
+        model.load_state_dict({k: v.to(device) for k, v in best_model_weights.items()})
 
-    # Inference on Test Set
     model.eval()
     y_pred_list = []
     with torch.inference_mode():
@@ -329,41 +351,54 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
 
     y_pred_scaled = np.vstack(y_pred_list)
 
-    # Inverse transform predictions and actual values back to kW scale
     y_test_seq_unscaled = scaler_y.inverse_transform(y_test_seq.reshape(-1, 1)).reshape(y_test_seq.shape)
     y_pred_unscaled     = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).reshape(y_pred_scaled.shape)
 
-    # Extract step vectors
     actual_by_step = {step: y_test_seq_unscaled[:, step] for step in steps_to_eval}
     predictions_by_step = {step: y_pred_unscaled[:, step] for step in steps_to_eval}
 
-    # Build Markdown evaluation output text
+    overall_m = compute_metrics(y_test_seq_unscaled.flatten(), y_pred_unscaled.flatten(), peak_threshold_kw)
+    all_seed_metrics.append(overall_m)
+
     output_lines = []
     output_lines.append(f"## SEED {SEED}")
     output_lines.append("================ MODEL EVALUATION METRICS (per horizon step) ================")
     output_lines.append(f"Peak Load Threshold (Top 20% of TRAIN): {peak_threshold_kw:.4f} kW")
     output_lines.append("-------------------------------------------------------------------------------")
+    output_lines.append(f"Overall MAE: {overall_m['mae']:.4f} kW | RMSE: {overall_m['rmse']:.4f} kW | R2: {overall_m['r2']:.4f} | WAPE: {overall_m['wape']:.2f}%\n")
 
     for step in steps_to_eval:
         m = compute_metrics(actual_by_step[step], predictions_by_step[step], peak_threshold_kw)
-        output_lines.append(f"\n[{step_labels[step]}]")
-        output_lines.append(f"  Overall MAE   : {m['mae']:.4f} kW")
-        output_lines.append(f"  Overall RMSE  : {m['rmse']:.4f} kW")
-        output_lines.append(f"  Overall R²    : {m['r2']:.4f}")
-        output_lines.append(f"  Overall MAPE  : {m['mape']:.2f}%")
-        output_lines.append(f"  Overall WAPE  : {m['wape']:.2f}%")
+        output_lines.append(f"[{step_labels[step]}]")
+        output_lines.append(f"  MAE   : {m['mae']:.4f} kW")
+        output_lines.append(f"  RMSE  : {m['rmse']:.4f} kW")
+        output_lines.append(f"  R²    : {m['r2']:.4f}")
+        output_lines.append(f"  MAPE  : {m['mape']:.2f}%")
+        output_lines.append(f"  WAPE  : {m['wape']:.2f}%")
         output_lines.append(f"  Peak Zone MAE : {m['mae_peak']:.4f} kW")
-        output_lines.append(f"  Peak Zone WAPE: {m['wape_peak']:.2f}%")
+        output_lines.append(f"  Peak Zone WAPE: {m['wape_peak']:.2f}%\n")
 
-    output_lines.append("=================================================================================\n")
     full_output_text = "\n".join(output_lines)
     print(full_output_text)
 
-    # Append to markdown file
     with open(output_md_filename, "a", encoding="utf-8") as f:
         f.write(full_output_text + "\n")
 
     print(f"Successfully saved SEED {SEED} metrics to {output_md_filename}")
     gc.collect()
 
-print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
+print(f"\n{'='*70}")
+print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — PowerMamba")
+print(f"{'='*70}")
+summary_lines = ["\n## Final Summary (Mean ± Std across Seeds)\n\n",
+                 "| Metric | Mean | Std |\n|---|---|---|\n"]
+for k in ['mae', 'rmse', 'r2', 'wape', 'mape']:
+    vals = [m[k] for m in all_seed_metrics if not np.isnan(m[k])]
+    mu, sigma = np.mean(vals), np.std(vals)
+    print(f"  {k.upper():<8}: {mu:.4f} ± {sigma:.4f}")
+    summary_lines.append(f"| {k.upper()} | {mu:.4f} | {sigma:.4f} |\n")
+
+with open(output_md_filename, "a", encoding="utf-8") as f:
+    f.writelines(summary_lines)
+
+print(f"\nFinished running all {len(SEEDS)} SEEDs for {output_md_filename}!")

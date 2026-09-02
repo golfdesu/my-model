@@ -61,11 +61,14 @@ else:
 # Auto-load MSVC environment (PATH, INCLUDE, LIB) for torch.compile()
 vcvars_path = r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
 if os.path.exists(vcvars_path):
-    msvc_env = subprocess.check_output(f'cmd.exe /c ""{vcvars_path}" && set"', text=True)
-    for line in msvc_env.splitlines():
-        if "=" in line:
-            k, v = line.split("=", 1)
-            os.environ[k] = v
+    try:
+        msvc_env = subprocess.check_output(f'cmd.exe /c ""{vcvars_path}" && set"', text=True)
+        for line in msvc_env.splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                os.environ[k] = v
+    except Exception:
+        pass
 
 
 # In[2]:
