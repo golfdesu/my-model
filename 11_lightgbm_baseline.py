@@ -170,6 +170,7 @@ LGB_PARAMS = dict(
     colsample_bytree=0.8,
     reg_alpha=0.0,
     reg_lambda=0.0,
+    max_bin=128,
     random_state=42,
     n_jobs=-1,
     verbose=-1,

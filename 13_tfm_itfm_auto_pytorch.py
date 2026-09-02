@@ -51,7 +51,6 @@ print("PyTorch Version:", torch.__version__)
 print("Using Device:", device)
 if device.type == 'cuda':
     print("GPU Model:", torch.cuda.get_device_name(0))
-    torch.cuda.set_per_process_memory_fraction(0.5, device=0)
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     torch.backends.cudnn.benchmark = True
@@ -259,9 +258,9 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     torch.cuda.manual_seed_all(SEED)
     np.random.seed(SEED)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  drop_last=True)
-    val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
-    test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  drop_last=True, pin_memory=(device.type == 'cuda'))
+    val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
+    test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
     model = iTransformerModel(
         lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON,

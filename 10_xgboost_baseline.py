@@ -22,6 +22,12 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 warnings.filterwarnings('ignore')
 
 try:
+    import torch
+    xgb_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+except Exception:
+    xgb_device = 'cpu'
+
+try:
     from tqdm.auto import tqdm
 except Exception:
     try:
@@ -167,6 +173,7 @@ XGB_PARAMS = dict(
     random_state=42,
     n_jobs=-1,
     tree_method='hist',     # fast histogram-based method, comparable to LightGBM's default
+    device=xgb_device,
     verbosity=0,
 )
 EARLY_STOPPING_ROUNDS = 50

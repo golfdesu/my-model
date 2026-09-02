@@ -46,7 +46,9 @@ print("PyTorch Version:", torch.__version__)
 print("Using Device:", device)
 if device.type == 'cuda':
     print("GPU Model:", torch.cuda.get_device_name(0))
-    torch.cuda.set_per_process_memory_fraction(0.5, device=0)  # VRAM Limit 50%
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
 else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
@@ -406,9 +408,9 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     np.random.seed(SEED)
 
     # Pre-built Dataset DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-    val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
-    test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True, pin_memory=(device.type == 'cuda'))
+    val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
+    test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
     # Build Model
     QUANTILES = [0.1, 0.5, 0.9]
@@ -431,7 +433,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         model.train()
         train_loss = 0.0
         for batch_X, batch_fk, batch_y in train_loader:
-            batch_X, batch_fk, batch_y = batch_X.to(device), batch_fk.to(device), batch_y.to(device)
+            batch_X, batch_fk, batch_y = batch_X.to(device, non_blocking=True), batch_fk.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             out = model(batch_X, batch_fk)
             loss = pinball_loss(out, batch_y, QUANTILES)
@@ -446,7 +448,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         val_loss = 0.0
         with torch.inference_mode():
             for batch_X, batch_fk, batch_y in val_loader:
-                batch_X, batch_fk, batch_y = batch_X.to(device), batch_fk.to(device), batch_y.to(device)
+                batch_X, batch_fk, batch_y = batch_X.to(device, non_blocking=True), batch_fk.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
                 out = model(batch_X, batch_fk)
                 loss = pinball_loss(out, batch_y, QUANTILES)
                 val_loss += loss.item() * batch_X.size(0)

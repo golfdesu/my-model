@@ -63,7 +63,9 @@ print("PyTorch Version:", torch.__version__)
 print("Using Device:", device)
 if device.type == 'cuda':
     print("GPU Model:", torch.cuda.get_device_name(0))
-    torch.cuda.set_per_process_memory_fraction(0.5, device=0)  # VRAM Limit 50%
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
 else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
@@ -228,9 +230,9 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     np.random.seed(SEED)
 
     # Pre-built Dataset DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-    val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
-    test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True, pin_memory=(device.type == 'cuda'))
+    val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
+    test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
     # Build Model
     model = DLinear(lookback=LOOKBACK, horizon=HORIZON, kernel_size=KERNEL_SIZE).to(device)
@@ -253,7 +255,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         model.train()
         train_loss = 0.0
         for batch_X, batch_y in train_loader:
-            batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+            batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             out = model(batch_X)
             loss = criterion(out, batch_y)
@@ -269,7 +271,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         val_loss = 0.0
         with torch.inference_mode():
             for batch_X, batch_y in val_loader:
-                batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+                batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
                 out = model(batch_X)
                 loss = criterion(out, batch_y)
                 time.sleep(0.002)
@@ -301,7 +303,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     y_pred_list = []
     with torch.inference_mode():
         for batch_X, _ in test_loader:
-            batch_X = batch_X.to(device)
+            batch_X = batch_X.to(device, non_blocking=True)
             out = model(batch_X)
             y_pred_list.append(out.cpu().numpy())
 

@@ -51,6 +51,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print("PyTorch Version:", torch.__version__)
 print("Using Device:", device)
 
+if device.type == "cuda":
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+
 # ---------------------------------------------------------
 # 1. Univariate Data Loading & Preprocessing
 # ---------------------------------------------------------
@@ -187,12 +192,18 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     torch.manual_seed(SEED)
     np.random.seed(SEED)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  drop_last=True)
-    val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
-    test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  drop_last=True, pin_memory=(device.type == 'cuda'))
+    val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
+    test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
     model = NLinear(lookback=LOOKBACK, horizon=HORIZON).to(device)
 
+
+    if device.type == 'cuda' and hasattr(torch, 'compile'):
+        try:
+            model = torch.compile(model)
+        except Exception:
+            pass
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if seed_idx == 1:
         print(f"Model Parameters: {total_params:,}  (NLinear: minimal by design)")

@@ -52,10 +52,9 @@ print("PyTorch Version:", torch.__version__)
 print("Using Device:", device)
 if device.type == 'cuda':
     print("GPU Model:", torch.cuda.get_device_name(0))
-    try:
-        torch.cuda.set_per_process_memory_fraction(0.5, device=0)
-    except Exception:
-        pass
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
 else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
@@ -269,12 +268,18 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     torch.cuda.manual_seed_all(SEED)
     np.random.seed(SEED)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-    val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
-    test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True, pin_memory=(device.type == 'cuda'))
+    val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
+    test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
     model = S4DModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, d_state=64, num_layers=2).to(device)
 
+
+    if device.type == 'cuda' and hasattr(torch, 'compile'):
+        try:
+            model = torch.compile(model)
+        except Exception:
+            pass
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
@@ -290,7 +295,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         model.train()
         train_loss = 0.0
         for batch_X, batch_y in train_loader:
-            batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+            batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             out = model(batch_X)
             loss = criterion(out, batch_y)
@@ -304,7 +309,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         val_loss = 0.0
         with torch.inference_mode():
             for batch_X, batch_y in val_loader:
-                batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+                batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
                 out = model(batch_X)
                 loss = criterion(out, batch_y)
                 val_loss += loss.item() * batch_X.size(0)
@@ -331,7 +336,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     y_pred_list = []
     with torch.inference_mode():
         for batch_X, _ in test_loader:
-            batch_X = batch_X.to(device)
+            batch_X = batch_X.to(device, non_blocking=True)
             out = model(batch_X)
             y_pred_list.append(out.cpu().numpy())
 
