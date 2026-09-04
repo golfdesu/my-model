@@ -127,7 +127,8 @@ def compute_metrics(actual, predicted, peak_threshold):
         wape_peak = (np.sum(np.abs(actual[peak] - predicted[peak])) / np.sum(actual[peak])) * 100
     else:
         mae_peak, wape_peak = np.nan, np.nan
-        bias = float(np.mean(predicted - actual))
+
+    bias = float(np.mean(predicted - actual))
     negative_pct = float(np.mean(predicted < 0) * 100)
 
     return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak, bias=bias, negative_pct=negative_pct)
