@@ -33,4 +33,4 @@ Every single model script (01 to 20) in both `hyperparameter_tuning` and `model`
 
 ## 5. Reproducibility
 - **Global Seed**: `SEED = 42` enforced across Python `random`, `numpy`, and `torch` (`torch.manual_seed(42)`, `torch.cuda.manual_seed_all(42)`).
-- **Seed Loop for Final Benchmarks**: `SEEDS = [164, 256, 355, 1234, 2026]`.\n
+- **Seed Loop for Final Benchmarks**: `SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]`.\n

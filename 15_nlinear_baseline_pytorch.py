@@ -1,3 +1,4 @@
+import json
 #!/usr/bin/env python
 # coding: utf-8
 
@@ -59,21 +60,12 @@ if device.type == "cuda":
 # ---------------------------------------------------------
 # 1. Univariate Data Loading & Preprocessing
 # ---------------------------------------------------------
-data_path = 'acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
+df = df.sort_index()  # safety: enforce chronological order before time-based split
 
 # Univariate only: target history alone as input (matching original NLinear/DLinear paper design)
 y = df['kWhDelivered'].astype('float32')
@@ -119,7 +111,10 @@ def compute_metrics(actual, predicted, peak_threshold):
         wape_peak = (np.sum(np.abs(actual[peak] - predicted[peak])) / np.sum(actual[peak])) * 100
     else:
         mae_peak, wape_peak = np.nan, np.nan
-    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak)
+        bias = float(np.mean(predicted - actual))
+    negative_pct = float(np.mean(predicted < 0) * 100)
+
+    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak, bias=bias, negative_pct=negative_pct)
 
 # ---------------------------------------------------------
 # 3. NLinear Architecture
@@ -157,11 +152,16 @@ import time
 
 LOOKBACK   = 96
 HORIZON    = 48
-BATCH_SIZE = 256
-SEEDS      = [164, 256, 355, 1234, 2026]
-output_md_filename = "15_nlinear_baseline_pytorch.md"
+BATCH_SIZE = 128
+SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
+output_json_filename = "15_nlinear_baseline_pytorch_results.json"
+results_data = {
+    "model_name": "15_nlinear_baseline_pytorch",
+    "seeds": {},
+    "summary": {}
+}
 steps_to_eval = [0, 5, 11, 47]
-step_labels   = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
+step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
 print("Pre-building univariate sequence tensors...")
 X_train_t, y_train_t, _, _ = create_windowed_tensors_univariate(y_train_scaled, LOOKBACK, HORIZON)
@@ -179,12 +179,13 @@ print(f"Starting {len(SEEDS)}-Seed Loop for NLinear...")
 # 5. Seed Training Loop
 # ---------------------------------------------------------
 all_seed_metrics = []
-md_lines = [
-    f"# NLinear (AAAI 2023) — ACN Caltech EV Charging Forecast\n",
-    f"Univariate input (kWhDelivered history only). LOOKBACK={LOOKBACK}, HORIZON={HORIZON}, SEEDS={SEEDS}\n\n"
-]
-
+all_predictions = {}
+best_overall_val_loss = float("inf")
+best_seed_id = None
 for seed_idx, SEED in enumerate(SEEDS, 1):
+    seed_start_time = time.time()
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats()
     print(f"\n{'='*70}")
     print(f"RUNNING SEED {SEED} ({seed_idx}/{len(SEEDS)})")
     print(f"{'='*70}")
@@ -197,7 +198,8 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
     model = NLinear(lookback=LOOKBACK, horizon=HORIZON).to(device)
-
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    results_data["total_parameters"] = total_params
 
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if seed_idx == 1:
@@ -205,12 +207,15 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         md_lines.append(f"**Model Parameters:** {total_params:,} (NLinear — minimal by design)\n\n")
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
+    optimizer = optim.Adam(model.parameters(), lr=0.0007436705882390548, weight_decay=6.408391359387875e-05)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs           = 100
     patience         = 15
     best_val_loss    = float('inf')
+    train_loss_history = []
+    val_loss_history   = []
+    best_epoch         = 1
     patience_counter = 0
     best_model_weights = None
     t0 = time.time()
@@ -237,8 +242,11 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         val_loss /= len(val_dataset)
         scheduler.step(val_loss)
 
+        train_loss_history.append(float(train_loss))
+        val_loss_history.append(float(val_loss))
         if val_loss < best_val_loss:
             best_val_loss    = val_loss
+            best_epoch = epoch
             patience_counter = 0
             best_model_weights = {k: v.cpu().clone() for k, v in model.state_dict().items()}
         else:
@@ -279,38 +287,86 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     print(f"  R²:   {metrics['r2']:.4f}")
     print(f"  WAPE: {metrics['wape']:.2f}%")
 
-    md_lines.append(f"\n## Seed {SEED}\n")
-    md_lines.append(f"| Metric | Value |\n|---|---|\n")
-    md_lines.append(f"| MAE | {metrics['mae']:.4f} kWh |\n")
-    md_lines.append(f"| RMSE | {metrics['rmse']:.4f} kWh |\n")
-    md_lines.append(f"| R2 | {metrics['r2']:.4f} |\n")
-    md_lines.append(f"| WAPE | {metrics['wape']:.2f}% |\n")
-    md_lines.append(f"| MAPE | {metrics['mape']:.2f}% |\n")
-    md_lines.append(f"| MAE Peak | {metrics['mae_peak']:.4f} kWh |\n")
-    md_lines.append(f"| WAPE Peak | {metrics['wape_peak']:.2f}% |\n")
-
-    md_lines.append(f"\n### Per-Step Metrics\n| Step | MAE | RMSE | WAPE |\n|---|---|---|---|\n")
+    per_step_metrics = {}
     for step in steps_to_eval:
-        sm = compute_metrics(y_true_kw[:, step], y_pred_kw[:, step], peak_threshold_kw)
-        md_lines.append(f"| {step_labels[step]} | {sm['mae']:.4f} | {sm['rmse']:.4f} | {sm['wape']:.2f}% |\n")
+        step_metrics = compute_metrics(y_true_kw[:, step], y_pred_kw[:, step], peak_threshold_kw)
+        label = step_labels[step]
+        per_step_metrics[label] = {k: (float(v) if not np.isnan(v) else None) for k, v in step_metrics.items()}
+        print(f"  [{label}] MAE: {step_metrics['mae']:.4f}, RMSE: {step_metrics['rmse']:.4f}, WAPE: {step_metrics['wape']:.2f}%")
+
+    seed_duration = round(time.time() - seed_start_time, 2)
+    metrics["training_time_seconds"] = seed_duration
+
+    # 48-step full horizon evaluation (24-hour error degradation)
+    mae_48 = [float(mean_absolute_error(y_true_kw[:, s], y_pred_kw[:, s])) for s in range(HORIZON)]
+    rmse_48 = [float(np.sqrt(mean_squared_error(y_true_kw[:, s], y_pred_kw[:, s]))) for s in range(HORIZON)]
+
+    all_predictions[f"seed_{SEED}"] = y_pred_kw.astype(np.float32)
+
+    if best_val_loss < best_overall_val_loss and best_model_weights is not None:
+        best_overall_val_loss = best_val_loss
+        best_seed_id = SEED
+        torch.save(best_model_weights, f"15_nlinear_baseline_pytorch_best.pt")
+        results_data["best_seed"] = int(SEED)
+        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> 15_nlinear_baseline_pytorch_best.pt")
+
+    results_data["seeds"][str(SEED)] = {
+        "training_time_seconds": seed_duration,
+        "peak_gpu_memory_mb": peak_vram_mb,
+        "epochs": list(range(1, len(train_loss_history) + 1)),
+        "train_loss": [float(v) for v in train_loss_history],
+        "val_loss": [float(v) for v in val_loss_history],
+        "best_epoch": int(best_epoch),
+        "best_val_loss": float(best_val_loss),
+        "overall_metrics": {k: (float(v) if not np.isnan(v) else None) for k, v in metrics.items()},
+        "per_step_metrics": per_step_metrics,
+        "step_48_metrics": {
+            "mae": mae_48,
+            "rmse": rmse_48
+        }
+    }
+    with open(output_json_filename, "w", encoding="utf-8") as f:
+        json.dump(results_data, f, indent=2)
+    print(f"Successfully saved SEED {SEED} results to {output_json_filename} (Runtime: {seed_duration}s)")
 
     gc.collect()
+    if device.type == 'cuda':
+        torch.cuda.empty_cache()
 
 # ---------------------------------------------------------
 # 6. Final Summary
 # ---------------------------------------------------------
-print(f"\n{'='*70}")
-print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — NLinear")
-print(f"{'='*70}")
-summary_lines = ["\n## Final Summary (Mean ± Std across Seeds)\n",
-                 "| Metric | Mean | Std |\n|---|---|---|\n"]
-for k in ['mae', 'rmse', 'r2', 'wape', 'mape']:
-    vals = [m[k] for m in all_seed_metrics if not np.isnan(m[k])]
-    mu, sigma = np.mean(vals), np.std(vals)
-    print(f"  {k.upper():<8}: {mu:.4f} ± {sigma:.4f}")
-    summary_lines.append(f"| {k.upper()} | {mu:.4f} | {sigma:.4f} |\n")
+all_predictions["y_true"] = y_true_kw.astype(np.float32)
+pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in SEEDS], axis=0)
+all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
+all_predictions["pred_std"] = np.std(pred_stack, axis=0).astype(np.float32)
+np.savez_compressed(f"15_nlinear_baseline_pytorch_predictions.npz", **all_predictions)
+print(f"Successfully saved all seed predictions to 15_nlinear_baseline_pytorch_predictions.npz")
 
-md_lines += summary_lines
-with open(output_md_filename, 'w', encoding='utf-8') as f:
-    f.writelines(md_lines)
-print(f"\nSaved results to {output_md_filename}")
+print(f"\n======================================================================")
+print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — 15_nlinear_baseline_pytorch")
+print(f"======================================================================")
+metric_keys = ['mae', 'rmse', 'r2', 'wape', 'mape', 'bias', 'negative_pct', 'training_time_seconds', 'peak_gpu_memory_mb']
+summary_dict = {}
+for k in metric_keys:
+    vals = [m[k] for m in all_seed_metrics if k in m and not np.isnan(m[k])]
+    if vals:
+        mu, sigma = float(np.mean(vals)), float(np.std(vals))
+        print(f"  {k.upper():<22}: {mu:.4f} ± {sigma:.4f}")
+        summary_dict[k] = {"mean": mu, "std": sigma}
+
+all_mae_48 = [results_data["seeds"][str(s)]["step_48_metrics"]["mae"] for s in results_data["seeds"] if "step_48_metrics" in results_data["seeds"][str(s)]]
+if all_mae_48:
+    summary_dict["mean_mae_by_step_48"] = [float(v) for v in np.mean(all_mae_48, axis=0)]
+
+results_data["config"] = {
+    "lookback": LOOKBACK,
+    "horizon": HORIZON,
+    "batch_size": BATCH_SIZE if 'BATCH_SIZE' in globals() or 'BATCH_SIZE' in locals() else None,
+    "seeds": SEEDS if 'SEEDS' in globals() or 'SEEDS' in locals() else None,
+    "total_parameters": results_data.get("total_parameters", None)
+}
+results_data["summary"] = summary_dict
+with open(output_json_filename, "w", encoding="utf-8") as f:
+    json.dump(results_data, f, indent=2)
+print(f"\nSaved results to {output_json_filename}")

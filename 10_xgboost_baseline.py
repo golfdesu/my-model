@@ -39,21 +39,12 @@ except Exception:
 # ---------------------------------------------------------------
 # Data Loading & Preprocessing (same path auto-detect and split as other scripts)
 # ---------------------------------------------------------------
-data_path = 'acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
+df = df.sort_index()  # safety: enforce chronological order before time-based split
 df = df.drop(columns=['prcp', 'tempDiff_48', 'cldc'], errors='ignore')
 
 cols = []
@@ -101,7 +92,18 @@ print(f"Peak Load Threshold (Top 20% of TRAIN): {peak_threshold_kw:.4f} kW")
 # ---------------------------------------------------------------
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-output_md_filename = "10_xgboost_baseline.md"
+output_json_filename = "10_xgboost_baseline_results.json"
+import time
+results_data = {
+    "model_name": "10_xgboost_baseline",
+    "total_parameters": HORIZON * 1000,
+    "seeds": {},
+    "summary": {}
+}
+all_seed_metrics = []
+all_predictions = {}
+best_overall_val_loss = float("inf")
+best_seed_id = None
 steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
@@ -152,7 +154,10 @@ def compute_metrics(actual, predicted, peak_threshold):
     else:
         mae_peak, wape_peak = np.nan, np.nan
 
-    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak)
+        bias = float(np.mean(predicted - actual))
+    negative_pct = float(np.mean(predicted < 0) * 100)
+
+    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak, bias=bias, negative_pct=negative_pct)
 
 # ---------------------------------------------------------------
 # Direct Multi-Output: train ONE XGBoost model PER horizon step (48 models total)
@@ -163,13 +168,13 @@ XGB_PARAMS = dict(
     objective='reg:squarederror',
     eval_metric='mae',
     n_estimators=1000,
-    learning_rate=0.03,
-    max_depth=6,            # XGBoost uses max_depth rather than LightGBM's num_leaves
-    min_child_weight=1,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    reg_alpha=0.0,
-    reg_lambda=1.0,
+    learning_rate=0.05808381432960484,
+    max_depth=4,            # XGBoost uses max_depth rather than LightGBM's num_leaves
+    min_child_weight=7.096220622166763,
+    subsample=0.6648958679659673,
+    colsample_bytree=0.5617104625598865,
+    reg_alpha=0.0008553664409816912,
+    reg_lambda=0.27861143653900455,
     random_state=42,
     n_jobs=-1,
     tree_method='hist',     # fast histogram-based method, comparable to LightGBM's default
@@ -178,11 +183,12 @@ XGB_PARAMS = dict(
 )
 EARLY_STOPPING_ROUNDS = 50
 
-SEEDS = [164, 256, 355, 1234, 2026]
+SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
 print(f"Starting Direct Multi-Output XGBoost ({HORIZON} models per seed) for {len(SEEDS)} seeds...")
 
 for seed_idx, SEED in enumerate(SEEDS, 1):
+    seed_start_time = time.time()
     print(f"\n=========================================================================")
     print(f"RUNNING SEED {SEED} ({seed_idx}/{len(SEEDS)})")
     print(f"=========================================================================")
@@ -234,10 +240,68 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     full_output_text = "\n".join(output_lines)
     print(full_output_text)
 
-    with open(output_md_filename, "a", encoding="utf-8") as f:
-        f.write(full_output_text + "\n")
+    overall_metrics = compute_metrics(y_test_multi.reshape(-1), y_pred_test.reshape(-1), peak_threshold_kw)
+    seed_duration = round(time.time() - seed_start_time, 2)
+    overall_metrics["training_time_seconds"] = seed_duration
+    all_seed_metrics.append(overall_metrics)
 
-    print(f"Successfully saved SEED {SEED} metrics to {output_md_filename}")
+    per_step_metrics = {}
+    for step in steps_to_eval:
+        m = compute_metrics(actual_by_step[step], predictions_by_step[step], peak_threshold_kw)
+        per_step_metrics[step_labels[step]] = {k: (float(v) if not np.isnan(v) else None) for k, v in m.items()}
+
+    # 48-step full horizon evaluation (24-hour error degradation)
+    mae_48 = [float(mean_absolute_error(y_test_multi[:, s], y_pred_test[:, s])) for s in range(HORIZON)]
+    rmse_48 = [float(np.sqrt(mean_squared_error(y_test_multi[:, s], y_pred_test[:, s]))) for s in range(HORIZON)]
+
+    all_predictions[f"seed_{SEED}"] = y_pred_test.astype(np.float32)
+
+    results_data["seeds"][str(SEED)] = {
+        "training_time_seconds": seed_duration,
+        "overall_metrics": {k: (float(v) if not np.isnan(v) else None) for k, v in overall_metrics.items()},
+        "per_step_metrics": per_step_metrics,
+        "step_48_metrics": {
+            "mae": mae_48,
+            "rmse": rmse_48
+        }
+    }
+    with open(output_json_filename, "w", encoding="utf-8") as f:
+        json.dump(results_data, f, indent=2)
+    print(f"Successfully saved SEED {SEED} results to {output_json_filename} (Runtime: {seed_duration}s)")
     gc.collect()
 
-print(f"\nFinished running all {len(SEEDS)} SEEDs for XGBoost Direct Multi-Output baseline!")
+all_predictions["y_true"] = y_test_multi.astype(np.float32)
+pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in SEEDS], axis=0)
+all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
+all_predictions["pred_std"] = np.std(pred_stack, axis=0).astype(np.float32)
+np.savez_compressed(f"10_xgboost_baseline_predictions.npz", **all_predictions)
+print(f"Successfully saved all seed predictions to 10_xgboost_baseline_predictions.npz")
+
+print(f"\n======================================================================")
+print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — 10_xgboost_baseline")
+print(f"======================================================================")
+summary_dict = {}
+metric_keys = ['mae', 'rmse', 'r2', 'wape', 'mape', 'bias', 'negative_pct', 'training_time_seconds']
+for k in metric_keys:
+    vals = [m[k] for m in all_seed_metrics if k in m and not np.isnan(m[k])]
+    if vals:
+        mu, sigma = float(np.mean(vals)), float(np.std(vals))
+        print(f"  {k.upper():<22}: {mu:.4f} ± {sigma:.4f}")
+        summary_dict[k] = {"mean": mu, "std": sigma}
+
+all_mae_48 = [results_data["seeds"][str(s)]["step_48_metrics"]["mae"] for s in results_data["seeds"] if "step_48_metrics" in results_data["seeds"][str(s)]]
+if all_mae_48:
+    summary_dict["mean_mae_by_step_48"] = [float(v) for v in np.mean(all_mae_48, axis=0)]
+
+results_data["config"] = {
+    "lookback": LOOKBACK,
+    "horizon": HORIZON,
+    "batch_size": BATCH_SIZE if 'BATCH_SIZE' in globals() or 'BATCH_SIZE' in locals() else None,
+    "seeds": SEEDS if 'SEEDS' in globals() or 'SEEDS' in locals() else None,
+    "total_parameters": results_data.get("total_parameters", None)
+}
+results_data["summary"] = summary_dict
+with open(output_json_filename, "w", encoding="utf-8") as f:
+    json.dump(results_data, f, indent=2)
+print(f"Successfully saved final results to {output_json_filename}")
+print(f"\nFinished running all {len(SEEDS)} SEEDs for 10_xgboost_baseline!")

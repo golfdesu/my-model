@@ -32,21 +32,12 @@ except Exception:
 # ---------------------------------------------------------------
 # Data Loading & Preprocessing (same path auto-detect as other scripts)
 # ---------------------------------------------------------------
-data_path = 'acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
+df = df.sort_index()  # safety: enforce chronological order before time-based split
 
 y = df['kWhDelivered'].astype('float32')
 
@@ -76,10 +67,16 @@ HORIZON = 48      # 24 hours forecast (48 * 30 min)
 SEASONAL_PERIOD = 48   # 1 day = 48 half-hour steps (daily seasonality)
 
 # SARIMA order - a reasonable default; can be tuned further with grid search / auto_arima if needed
-ORDER = (1, 1, 1)
-SEASONAL_ORDER = (1, 1, 1, SEASONAL_PERIOD)
+ORDER = (0, 1, 1)
+SEASONAL_ORDER = (1, 0, 1, SEASONAL_PERIOD)
 
-output_md_filename = "12_sarima_baseline.md"
+output_json_filename = "12_sarima_baseline_results.json"
+results_data = {
+    "model_name": "12_sarima_baseline",
+    "total_parameters": ORDER[0] + ORDER[2] + SEASONAL_ORDER[0] + SEASONAL_ORDER[2] + 1,
+    "overall_metrics": {},
+    "per_step_metrics": {}
+}
 steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
@@ -113,7 +110,10 @@ def compute_metrics(actual, predicted, peak_threshold):
     else:
         mae_peak, wape_peak = np.nan, np.nan
 
-    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak)
+        bias = float(np.mean(predicted - actual))
+    negative_pct = float(np.mean(predicted < 0) * 100)
+
+    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak, bias=bias, negative_pct=negative_pct)
 
 # ---------------------------------------------------------------
 # Walk-Forward SARIMA: refit at every test window, forecast HORIZON steps ahead
@@ -193,10 +193,35 @@ output_lines.append("===========================================================
 full_output_text = "\n".join(output_lines)
 print(full_output_text)
 
-with open(output_md_filename, "a", encoding="utf-8") as f:
-    f.write(full_output_text + "\n")
+overall_metrics = compute_metrics(y_true_all.reshape(-1), y_pred_all.reshape(-1), peak_threshold_kw)
+overall_metrics["training_time_seconds"] = round(elapsed, 2)
 
-print(f"Successfully saved SARIMA baseline metrics to {output_md_filename}")
+per_step_metrics = {}
+for step in steps_to_eval:
+    m = compute_metrics(actual_by_step[step], predictions_by_step[step], peak_threshold_kw)
+    per_step_metrics[step_labels[step]] = {k: (float(v) if not np.isnan(v) else None) for k, v in m.items()}
+
+# 48-step full horizon evaluation (24-hour error degradation)
+mae_48 = [float(mean_absolute_error(y_true_all[:, s], y_pred_all[:, s])) for s in range(HORIZON)]
+rmse_48 = [float(np.sqrt(mean_squared_error(y_true_all[:, s], y_pred_all[:, s]))) for s in range(HORIZON)]
+
+results_data["training_time_seconds"] = round(elapsed, 2)
+results_data["overall_metrics"] = {k: (float(v) if not np.isnan(v) else None) for k, v in overall_metrics.items()}
+results_data["per_step_metrics"] = per_step_metrics
+results_data["step_48_metrics"] = {
+    "mae": mae_48,
+    "rmse": rmse_48
+}
+results_data["config"] = {
+    "lookback": LOOKBACK if 'LOOKBACK' in globals() else 96,
+    "horizon": HORIZON,
+    "order": ORDER,
+    "seasonal_order": SEASONAL_ORDER,
+    "total_parameters": results_data.get("total_parameters", None)
+}
+with open(output_json_filename, "w", encoding="utf-8") as f:
+    json.dump(results_data, f, indent=2)
+print(f"Successfully saved SARIMA baseline results to {output_json_filename}")
 
 # Also save raw predictions for potential further analysis
 np.savez(
@@ -205,3 +230,10 @@ np.savez(
     y_true=y_true_all,
 )
 print("Saved raw predictions to 00_sarima_baseline_predictions.npz")
+
+np.savez_compressed(
+    f"12_sarima_baseline_predictions.npz",
+    y_true=y_true_all.astype(np.float32),
+    pred_mean=y_pred_all.astype(np.float32)
+)
+print(f"Successfully saved SARIMA predictions to 12_sarima_baseline_predictions.npz")

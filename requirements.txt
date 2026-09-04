@@ -1,0 +1,15 @@
+# Deep Learning & Scientific Computing
+torch==2.13.0
+numpy==2.5.2
+pandas==3.0.5
+scikit-learn==1.9.0
+scipy==1.18.1
+
+# Gradient Boosted Trees & Statistical Baselines
+xgboost==3.4.1
+lightgbm==4.7.0
+statsmodels==0.14.4
+
+# Hyperparameter Optimization & Progress Tracking
+optuna==4.9.0
+tqdm==4.70.0

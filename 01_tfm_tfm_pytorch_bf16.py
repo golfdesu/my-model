@@ -1,21 +1,25 @@
+import json
+#!/usr/bin/env python
+# coding: utf-8
+
+# # Baseline Transformer Encoder in PyTorch (Vanilla Transformer - Vaswani et al., NIPS 2017)
+# Converted from TensorFlow/Keras implementation (`01_tfm_tfm_auto.ipynb`) to PyTorch with Colab GPU Auto-Detect, `tqdm` Progress Bar & CPU Optimizations.
+
+# In[ ]:
+
 import sys
 import os
-import sys
 if hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
         pass
-import subprocess
 import gc
 import warnings
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
@@ -52,22 +56,15 @@ if device.type == 'cuda':
 else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
+# In[2]:
+
 # Load and clean dataset (Local path auto-detect for VS Code)
-data_path = 'acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
+df = df.sort_index()  # safety: enforce chronological order before time-based split
 
 # Drop unneeded columns
 df = df.drop(columns=['prcp', 'tempDiff_48', 'cldc'], errors='ignore')
@@ -82,6 +79,8 @@ X = df[cols]
 y = df['kWhDelivered']
 
 print(f"Dataset Loaded successfully from {data_path}! Total Rows: {len(df)}, Features Count: {len(cols)}")
+
+# In[3]:
 
 # Train/Val/Test Split (60% / 20% / 20%)
 train_len = int(len(df) * 0.6)
@@ -111,6 +110,8 @@ y_test_scaled  = scaler_y.transform(y_test.values.reshape(-1, 1)).flatten()
 peak_threshold_kw = float(np.percentile(df['kWhDelivered'].iloc[:train_len], 80))
 print(f"Peak Load Threshold (Top 20% of TRAIN): {peak_threshold_kw:.4f} kW")
 
+# In[4]:
+
 # Helper 1: PyTorch DataLoader Creator
 def create_windowed_tensors(X_data, y_data, lookback, horizon):
     X_seq, y_seq = [], []
@@ -121,27 +122,70 @@ def create_windowed_tensors(X_data, y_data, lookback, horizon):
     y_t = torch.tensor(np.array(y_seq, dtype=np.float32))
     return X_t, y_t, np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32)
 
-# Helper: Positional Embedding Layer in PyTorch
+# Helper 2: Sinusoidal Positional Encoding (Vaswani et al., NIPS 2017, Sec 3.5)
+# Paper-faithful: fixed sinusoids instead of learned embedding
 class PositionalEmbedding(nn.Module):
     def __init__(self, seq_len, d_model):
         super().__init__()
-        self.pos_emb = nn.Embedding(seq_len, d_model)
+        pe = torch.zeros(seq_len, d_model)
+        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term[:pe[:, 1::2].size(1)])
+        self.register_buffer('pe', pe.unsqueeze(0))  # [1, seq_len, d_model]
     def forward(self, x):
-        positions = torch.arange(0, x.size(1), device=x.device)
-        return x + self.pos_emb(positions)
+        # x shape: [batch, seq_len, d_model]
+        return x + self.pe[:, :x.size(1), :]
 
-# Helper: PyTorch Gaussian Noise Layer
-class GaussianNoise(nn.Module):
-    def __init__(self, stddev=0.01):
+# Helper 3: PyTorch Gaussian Noise Layer
+# Helper 4: Encoder-Only Transformer Architecture in PyTorch
+class EncoderOnlyTransformer(nn.Module):
+    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2,
+                 dropout_rate=0.2, noise_stddev=0.05):
         super().__init__()
-        self.stddev = stddev
-    def forward(self, x):
-        if self.training and self.stddev > 0:
-            noise = torch.randn_like(x) * self.stddev
-            return x + noise
-        return x
+        self.feature_proj = nn.Linear(num_features, d_model)
+        self.pos_emb = PositionalEmbedding(lookback, d_model)
+        self.dropout = nn.Dropout(dropout_rate)
 
-# Helper: Metrics Evaluator Function
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, 
+            nhead=num_heads, 
+            dim_feedforward=d_ff, 
+            dropout=dropout_rate, 
+            batch_first=True,
+            activation='relu'
+        )
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        # Head
+        self.head_fc1 = nn.Linear(d_model * 2, 128)
+        self.head_dropout1 = nn.Dropout(dropout_rate)
+        self.head_fc2 = nn.Linear(128, 64)
+        self.head_dropout2 = nn.Dropout(dropout_rate)
+        self.out_proj = nn.Linear(64, horizon)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        # x: [batch, lookback, num_features]
+        x = self.feature_proj(x)
+        x = self.pos_emb(x)
+        x = self.dropout(x)
+
+        x = self.transformer_encoder(x)
+
+        # Dual Feature Aggregation (Last step + Global Average Pooling)
+        last_step_feat = x[:, -1, :]
+        global_avg_feat = torch.mean(x, dim=1)
+        context = torch.cat([last_step_feat, global_avg_feat], dim=-1)
+
+        x = self.relu(self.head_fc1(context))
+        x = self.head_dropout1(x)
+        x = self.relu(self.head_fc2(x))
+        x = self.head_dropout2(x)
+        out = self.out_proj(x)
+        return out
+
+# Helper 5: Metrics Evaluator Function
 def compute_metrics(actual, predicted, peak_threshold):
     mae = mean_absolute_error(actual, predicted)
     rmse = np.sqrt(mean_squared_error(actual, predicted))
@@ -158,71 +202,34 @@ def compute_metrics(actual, predicted, peak_threshold):
     else:
         mae_peak, wape_peak = np.nan, np.nan
 
-    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak)
+        bias = float(np.mean(predicted - actual))
+    negative_pct = float(np.mean(predicted < 0) * 100)
 
-# Helper: Decoder-Only Architecture PyTorch Module
-class DecoderOnlyTransformer(nn.Module):
-    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2, dropout_rate=0.1, noise_stddev=0.01):
-        super().__init__()
-        self.proj = nn.Linear(num_features, d_model)
-        self.gaussian_noise = GaussianNoise(stddev=noise_stddev)
-        self.pos_emb = PositionalEmbedding(lookback, d_model)
-        self.drop = nn.Dropout(dropout_rate)
+    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak, bias=bias, negative_pct=negative_pct)
 
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=d_model, nhead=num_heads, dim_feedforward=d_ff, dropout=dropout_rate, batch_first=True, activation='relu'
-        )
-        self.num_layers = num_layers
-        self.mha_layers = nn.ModuleList([nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True) for _ in range(num_layers)])
-        self.norm1 = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
-        self.ffn = nn.ModuleList([
-            nn.Sequential(nn.Linear(d_model, d_ff), nn.ReLU(), nn.Dropout(dropout_rate), nn.Linear(d_ff, d_model), nn.Dropout(dropout_rate)) for _ in range(num_layers)
-        ])
-        self.norm2 = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
-
-        self.fc1 = nn.Linear(d_model * 2, 128)
-        self.drop1 = nn.Dropout(dropout_rate)
-        self.fc2 = nn.Linear(128, 64)
-        self.drop2 = nn.Dropout(dropout_rate)
-        self.out_proj = nn.Linear(64, horizon)
-
-    def forward(self, x):
-        # x: [batch, lookback, num_features]
-        x = self.proj(x)
-        x = self.gaussian_noise(x)
-        x = self.pos_emb(x)
-        x = self.drop(x)
-
-        seq_len = x.size(1)
-        causal_mask = torch.triu(torch.full((seq_len, seq_len), float('-inf'), device=x.device), diagonal=1)
-
-        for i in range(self.num_layers):
-            attn_out, _ = self.mha_layers[i](x, x, x, attn_mask=causal_mask)
-            x = self.norm1[i](x + self.drop(attn_out))
-            ffn_out = self.ffn[i](x)
-            x = self.norm2[i](x + ffn_out)
-
-        last_step_feat = x[:, -1, :]
-        global_avg_feat = torch.mean(x, dim=1)
-        history_context = torch.cat([last_step_feat, global_avg_feat], dim=-1)
-
-        h = F.relu(self.fc1(history_context))
-        h = self.drop1(h)
-        h = F.relu(self.fc2(h))
-        h = self.drop2(h)
-        out = self.out_proj(h)
-        return out
+# In[5]:
 
 import time
 # Config Parameters
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 256
-SEEDS = [164, 256, 355, 1234, 2026]
-output_md_filename = "06_tfm_dec_pytorch.md"
+BATCH_SIZE = 128
+SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
+output_json_filename = "01_tfm_tfm_pytorch_bf16_results.json"
+results_data = {
+    "model_name": "01_tfm_tfm_pytorch_bf16",
+    "precision": "bfloat16_autocast",
+    "seeds": {},
+    "summary": {}
+}
+all_seed_metrics = []
+all_predictions = {}
+best_overall_val_loss = float("inf")
+best_seed_id = None
 steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
+# Truncate output file so re-running the script does not stack duplicate results
 print('Pre-building sequence tensors...')
 X_train_t, y_train_t, _, _ = create_windowed_tensors(X_train_scaled, y_train_scaled, LOOKBACK, HORIZON)
 X_val_t, y_val_t, _, _     = create_windowed_tensors(X_val_scaled, y_val_scaled, LOOKBACK, HORIZON)
@@ -232,9 +239,12 @@ train_dataset = TensorDataset(X_train_t, y_train_t)
 val_dataset   = TensorDataset(X_val_t, y_val_t)
 test_dataset  = TensorDataset(X_test_t, y_test_t)
 
-print(f"Starting Automated {len(SEEDS)}-Seed Loop for {output_md_filename} in PyTorch...")
+print(f"Starting Automated {len(SEEDS)}-Seed Loop for 01_tfm_tfm_pytorch_bf16 in PyTorch...")
 
 for seed_idx, SEED in enumerate(SEEDS, 1):
+    seed_start_time = time.time()
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats()
     print(f"\n=========================================================================")
     print(f"RUNNING SEED {SEED} ({seed_idx}/{len(SEEDS)})")
     print(f"=========================================================================")
@@ -249,17 +259,21 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
     test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-    # Build Model
-    model = DecoderOnlyTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON).to(device)
+    model = EncoderOnlyTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=128, num_heads=4, d_ff=256, num_layers=1, dropout_rate=0.1).to(device)
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    results_data["total_parameters"] = total_params
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
+    optimizer = optim.Adam(model.parameters(), lr=0.0006412589172202276, weight_decay=4.7084742858033325e-05)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)
     epochs = 100
     patience = 15
     best_val_loss = float('inf')
+    train_loss_history = []
+    val_loss_history   = []
+    best_epoch         = 1
     patience_counter = 0
     best_model_weights = None
 
@@ -270,13 +284,13 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         for batch_X, batch_y in train_loader:
             batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            out = model(batch_X)
-            loss = criterion(out, batch_y)
+            with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=(device.type == 'cuda')):
+                out = model(batch_X)
+                loss = criterion(out, batch_y)
             loss.backward()
             optimizer.step()
-            time.sleep(0.005)  # Rest GPU per batch to keep temperature cool
             train_loss += loss.item() * batch_X.size(0)
-        
+
         train_loss /= len(train_loader.dataset)
 
         # Validation
@@ -285,19 +299,22 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         with torch.inference_mode():
             for batch_X, batch_y in val_loader:
                 batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
-                out = model(batch_X)
-                loss = criterion(out, batch_y)
-                time.sleep(0.002)
+                with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=(device.type == 'cuda')):
+                    out = model(batch_X)
+                    loss = criterion(out, batch_y)
                 val_loss += loss.item() * batch_X.size(0)
-        
+
         val_loss /= len(val_loader.dataset)
         scheduler.step(val_loss)
 
+        train_loss_history.append(float(train_loss))
+        val_loss_history.append(float(val_loss))
         # Dynamic tqdm bar update
-        epoch_pbar.set_postfix({'train_loss': f"{train_loss:.5f}", 'val_loss': f"{val_loss:.5f}"} )
+        epoch_pbar.set_postfix({'train_loss': f"{train_loss:.5f}", 'val_loss': f"{val_loss:.5f}"})
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_epoch = epoch
             patience_counter = 0
             target_model = model._orig_mod if hasattr(model, '_orig_mod') else model
             best_model_weights = {k: v.cpu().clone() for k, v in target_model.state_dict().items()}
@@ -317,9 +334,10 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     with torch.inference_mode():
         for batch_X, _ in test_loader:
             batch_X = batch_X.to(device, non_blocking=True)
-            out = model(batch_X)
-            y_pred_list.append(out.cpu().numpy())
-    
+            with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=(device.type == 'cuda')):
+                out = model(batch_X)
+            y_pred_list.append(out.float().cpu().numpy())
+
     y_pred_scaled = np.vstack(y_pred_list)
 
     # Inverse transform predictions and actual values back to kW scale
@@ -348,16 +366,88 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         output_lines.append(f"  Peak Zone MAE : {m['mae_peak']:.4f} kW")
         output_lines.append(f"  Peak Zone WAPE: {m['wape_peak']:.2f}%")
 
-    output_lines.append("================================================================Match=================\n")
+    output_lines.append("=================================================================================\n")
     full_output_text = "\n".join(output_lines)
     print(full_output_text)
 
-    # Append to markdown file
-    with open(output_md_filename, "a", encoding="utf-8") as f:
-        f.write(full_output_text + "\n")
-        
-    print(f"Successfully saved SEED {SEED} metrics to {output_md_filename}")
+    overall_metrics = compute_metrics(y_test_seq_unscaled.reshape(-1), y_pred_unscaled.reshape(-1), peak_threshold_kw)
+    seed_duration = round(time.time() - seed_start_time, 2)
+    peak_vram_mb = round(torch.cuda.max_memory_allocated() / (1024**2), 2) if device.type == 'cuda' else 0.0
+    overall_metrics["training_time_seconds"] = seed_duration
+    overall_metrics["peak_gpu_memory_mb"] = peak_vram_mb
+    all_seed_metrics.append(overall_metrics)
+
+    per_step_metrics = {}
+    for step in steps_to_eval:
+        m = compute_metrics(actual_by_step[step], predictions_by_step[step], peak_threshold_kw)
+        per_step_metrics[step_labels[step]] = {k: (float(v) if not np.isnan(v) else None) for k, v in m.items()}
+
+    # 48-step full horizon evaluation (24-hour error degradation)
+    mae_48 = [float(mean_absolute_error(y_test_seq_unscaled[:, s], y_pred_unscaled[:, s])) for s in range(HORIZON)]
+    rmse_48 = [float(np.sqrt(mean_squared_error(y_test_seq_unscaled[:, s], y_pred_unscaled[:, s]))) for s in range(HORIZON)]
+
+    all_predictions[f"seed_{SEED}"] = y_pred_unscaled.astype(np.float32)
+
+    if best_val_loss < best_overall_val_loss and best_model_weights is not None:
+        best_overall_val_loss = best_val_loss
+        best_seed_id = SEED
+        torch.save(best_model_weights, f"01_tfm_tfm_pytorch_bf16_best.pt")
+        results_data["best_seed"] = int(SEED)
+        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> 01_tfm_tfm_pytorch_bf16_best.pt")
+
+    results_data["seeds"][str(SEED)] = {
+        "training_time_seconds": seed_duration,
+        "peak_gpu_memory_mb": peak_vram_mb,
+        "epochs": list(range(1, len(train_loss_history) + 1)),
+        "train_loss": [float(v) for v in train_loss_history],
+        "val_loss": [float(v) for v in val_loss_history],
+        "best_epoch": int(best_epoch),
+        "best_val_loss": float(best_val_loss),
+        "overall_metrics": {k: (float(v) if not np.isnan(v) else None) for k, v in overall_metrics.items()},
+        "per_step_metrics": per_step_metrics,
+        "step_48_metrics": {
+            "mae": mae_48,
+            "rmse": rmse_48
+        }
+    }
+    with open(output_json_filename, "w", encoding="utf-8") as f:
+        json.dump(results_data, f, indent=2)
+    print(f"Successfully saved SEED {SEED} results to {output_json_filename} (Runtime: {seed_duration}s)")
     gc.collect()
 
+all_predictions["y_true"] = y_test_seq_unscaled.astype(np.float32)
+pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in SEEDS], axis=0)
+all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
+all_predictions["pred_std"] = np.std(pred_stack, axis=0).astype(np.float32)
+np.savez_compressed(f"01_tfm_tfm_pytorch_bf16_predictions.npz", **all_predictions)
+print(f"Successfully saved all seed predictions to 01_tfm_tfm_pytorch_bf16_predictions.npz")
+
+print(f"\n======================================================================")
+print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — 01_tfm_tfm_pytorch_bf16")
+print(f"======================================================================")
+summary_dict = {}
+metric_keys = ['mae', 'rmse', 'r2', 'wape', 'mape', 'bias', 'negative_pct', 'training_time_seconds', 'peak_gpu_memory_mb']
+for k in metric_keys:
+    vals = [m[k] for m in all_seed_metrics if k in m and not np.isnan(m[k])]
+    if vals:
+        mu, sigma = float(np.mean(vals)), float(np.std(vals))
+        print(f"  {k.upper():<22}: {mu:.4f} ± {sigma:.4f}")
+        summary_dict[k] = {"mean": mu, "std": sigma}
+
+all_mae_48 = [results_data["seeds"][str(s)]["step_48_metrics"]["mae"] for s in results_data["seeds"] if "step_48_metrics" in results_data["seeds"][str(s)]]
+if all_mae_48:
+    summary_dict["mean_mae_by_step_48"] = [float(v) for v in np.mean(all_mae_48, axis=0)]
+
+results_data["config"] = {
+    "lookback": LOOKBACK,
+    "horizon": HORIZON,
+    "batch_size": BATCH_SIZE if 'BATCH_SIZE' in globals() or 'BATCH_SIZE' in locals() else None,
+    "seeds": SEEDS if 'SEEDS' in globals() or 'SEEDS' in locals() else None,
+    "total_parameters": results_data.get("total_parameters", None)
+}
+results_data["summary"] = summary_dict
+with open(output_json_filename, "w", encoding="utf-8") as f:
+    json.dump(results_data, f, indent=2)
+print(f"Successfully saved final results to {output_json_filename}")
 print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
 

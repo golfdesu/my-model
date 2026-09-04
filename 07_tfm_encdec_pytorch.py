@@ -1,3 +1,4 @@
+import json
 import sys
 import os
 import sys
@@ -6,13 +7,10 @@ if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
         pass
-import subprocess
 import gc
 import warnings
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -53,21 +51,12 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # Load and clean dataset (Local path auto-detect for VS Code)
-data_path = 'acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = '../preprocess/acn_caltech_ready2.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready.csv'
-if not os.path.exists(data_path):
-    data_path = r'C:\Users\chaya\Documents\Program\Practice\preprocess\acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
+df = df.sort_index()  # safety: enforce chronological order before time-based split
 
 # Drop unneeded columns
 df = df.drop(columns=['prcp', 'tempDiff_48', 'cldc'], errors='ignore')
@@ -131,16 +120,6 @@ class PositionalEmbedding(nn.Module):
         return x + self.pos_emb(positions)
 
 # Helper: PyTorch Gaussian Noise Layer
-class GaussianNoise(nn.Module):
-    def __init__(self, stddev=0.01):
-        super().__init__()
-        self.stddev = stddev
-    def forward(self, x):
-        if self.training and self.stddev > 0:
-            noise = torch.randn_like(x) * self.stddev
-            return x + noise
-        return x
-
 # Helper: Metrics Evaluator Function
 def compute_metrics(actual, predicted, peak_threshold):
     mae = mean_absolute_error(actual, predicted)
@@ -158,7 +137,10 @@ def compute_metrics(actual, predicted, peak_threshold):
     else:
         mae_peak, wape_peak = np.nan, np.nan
 
-    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak)
+        bias = float(np.mean(predicted - actual))
+    negative_pct = float(np.mean(predicted < 0) * 100)
+
+    return dict(mae=mae, rmse=rmse, r2=r2, wape=wape, mape=mape, mae_peak=mae_peak, wape_peak=wape_peak, bias=bias, negative_pct=negative_pct)
 
 # Helper: Encoder-Decoder Architecture PyTorch Module
 class EncoderDecoderTransformer(nn.Module):
@@ -169,7 +151,6 @@ class EncoderDecoderTransformer(nn.Module):
 
         # Encoder
         self.enc_proj = nn.Linear(num_features, d_model)
-        self.gaussian_noise = GaussianNoise(stddev=noise_stddev)
         self.pos_emb_enc = PositionalEmbedding(lookback, d_model)
         self.drop_enc = nn.Dropout(dropout_rate)
 
@@ -204,7 +185,7 @@ class EncoderDecoderTransformer(nn.Module):
         batch_size = x.size(0)
 
         # Encoder
-        enc_in = self.drop_enc(self.pos_emb_enc(self.gaussian_noise(self.enc_proj(x))))
+        enc_in = self.drop_enc(self.pos_emb_enc(self.enc_proj(x)))
         enc_out = self.encoder(enc_in)
 
         # Decoder initial context (repeat last encoder representation across horizon steps)
@@ -235,9 +216,18 @@ import time
 # Config Parameters
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 256
-SEEDS = [164, 256, 355, 1234, 2026]
-output_md_filename = "07_tfm_encdec_pytorch.md"
+BATCH_SIZE = 64
+SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
+output_json_filename = "07_tfm_encdec_pytorch_results.json"
+results_data = {
+    "model_name": "07_tfm_encdec_pytorch",
+    "seeds": {},
+    "summary": {}
+}
+all_seed_metrics = []
+all_predictions = {}
+best_overall_val_loss = float("inf")
+best_seed_id = None
 steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
@@ -250,9 +240,12 @@ train_dataset = TensorDataset(X_train_t, y_train_t)
 val_dataset   = TensorDataset(X_val_t, y_val_t)
 test_dataset  = TensorDataset(X_test_t, y_test_t)
 
-print(f"Starting Automated {len(SEEDS)}-Seed Loop for {output_md_filename} in PyTorch...")
+print(f"Starting Automated {len(SEEDS)}-Seed Loop for 07_tfm_encdec_pytorch in PyTorch...")
 
 for seed_idx, SEED in enumerate(SEEDS, 1):
+    seed_start_time = time.time()
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats()
     print(f"\n=========================================================================")
     print(f"RUNNING SEED {SEED} ({seed_idx}/{len(SEEDS)})")
     print(f"=========================================================================")
@@ -268,16 +261,21 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
     # Build Model
-    model = EncoderDecoderTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON).to(device)
+    model = EncoderDecoderTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=128, num_heads=4, d_ff=512, num_layers=1, dropout_rate=0.1).to(device)
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    results_data["total_parameters"] = total_params
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
+    optimizer = optim.Adam(model.parameters(), lr=0.0002509898258872657, weight_decay=8.075382022710797e-05)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)
     epochs = 100
     patience = 15
     best_val_loss = float('inf')
+    train_loss_history = []
+    val_loss_history   = []
+    best_epoch         = 1
     patience_counter = 0
     best_model_weights = None
 
@@ -292,7 +290,6 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
             loss = criterion(out, batch_y)
             loss.backward()
             optimizer.step()
-            time.sleep(0.005)  # Rest GPU per batch to keep temperature cool
             train_loss += loss.item() * batch_X.size(0)
         
         train_loss /= len(train_loader.dataset)
@@ -305,17 +302,19 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
                 batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
                 out = model(batch_X)
                 loss = criterion(out, batch_y)
-                time.sleep(0.002)
                 val_loss += loss.item() * batch_X.size(0)
         
         val_loss /= len(val_loader.dataset)
         scheduler.step(val_loss)
 
+        train_loss_history.append(float(train_loss))
+        val_loss_history.append(float(val_loss))
         # Dynamic tqdm bar update
         epoch_pbar.set_postfix({'train_loss': f"{train_loss:.5f}", 'val_loss': f"{val_loss:.5f}"} )
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_epoch = epoch
             patience_counter = 0
             target_model = model._orig_mod if hasattr(model, '_orig_mod') else model
             best_model_weights = {k: v.cpu().clone() for k, v in target_model.state_dict().items()}
@@ -366,16 +365,88 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         output_lines.append(f"  Peak Zone MAE : {m['mae_peak']:.4f} kW")
         output_lines.append(f"  Peak Zone WAPE: {m['wape_peak']:.2f}%")
 
-    output_lines.append("================================================================Match=================\n")
+    output_lines.append("=================================================================================\n")
     full_output_text = "\n".join(output_lines)
     print(full_output_text)
 
-    # Append to markdown file
-    with open(output_md_filename, "a", encoding="utf-8") as f:
-        f.write(full_output_text + "\n")
-        
-    print(f"Successfully saved SEED {SEED} metrics to {output_md_filename}")
+    overall_metrics = compute_metrics(y_test_seq_unscaled.reshape(-1), y_pred_unscaled.reshape(-1), peak_threshold_kw)
+    seed_duration = round(time.time() - seed_start_time, 2)
+    peak_vram_mb = round(torch.cuda.max_memory_allocated() / (1024**2), 2) if device.type == 'cuda' else 0.0
+    overall_metrics["training_time_seconds"] = seed_duration
+    overall_metrics["peak_gpu_memory_mb"] = peak_vram_mb
+    all_seed_metrics.append(overall_metrics)
+
+    per_step_metrics = {}
+    for step in steps_to_eval:
+        m = compute_metrics(actual_by_step[step], predictions_by_step[step], peak_threshold_kw)
+        per_step_metrics[step_labels[step]] = {k: (float(v) if not np.isnan(v) else None) for k, v in m.items()}
+
+    # 48-step full horizon evaluation (24-hour error degradation)
+    mae_48 = [float(mean_absolute_error(y_test_seq_unscaled[:, s], y_pred_unscaled[:, s])) for s in range(HORIZON)]
+    rmse_48 = [float(np.sqrt(mean_squared_error(y_test_seq_unscaled[:, s], y_pred_unscaled[:, s]))) for s in range(HORIZON)]
+
+    all_predictions[f"seed_{SEED}"] = y_pred_unscaled.astype(np.float32)
+
+    if best_val_loss < best_overall_val_loss and best_model_weights is not None:
+        best_overall_val_loss = best_val_loss
+        best_seed_id = SEED
+        torch.save(best_model_weights, f"07_tfm_encdec_pytorch_best.pt")
+        results_data["best_seed"] = int(SEED)
+        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> 07_tfm_encdec_pytorch_best.pt")
+
+    results_data["seeds"][str(SEED)] = {
+        "training_time_seconds": seed_duration,
+        "peak_gpu_memory_mb": peak_vram_mb,
+        "epochs": list(range(1, len(train_loss_history) + 1)),
+        "train_loss": [float(v) for v in train_loss_history],
+        "val_loss": [float(v) for v in val_loss_history],
+        "best_epoch": int(best_epoch),
+        "best_val_loss": float(best_val_loss),
+        "overall_metrics": {k: (float(v) if not np.isnan(v) else None) for k, v in overall_metrics.items()},
+        "per_step_metrics": per_step_metrics,
+        "step_48_metrics": {
+            "mae": mae_48,
+            "rmse": rmse_48
+        }
+    }
+    with open(output_json_filename, "w", encoding="utf-8") as f:
+        json.dump(results_data, f, indent=2)
+    print(f"Successfully saved SEED {SEED} results to {output_json_filename} (Runtime: {seed_duration}s)")
     gc.collect()
 
+all_predictions["y_true"] = y_test_seq_unscaled.astype(np.float32)
+pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in SEEDS], axis=0)
+all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
+all_predictions["pred_std"] = np.std(pred_stack, axis=0).astype(np.float32)
+np.savez_compressed(f"07_tfm_encdec_pytorch_predictions.npz", **all_predictions)
+print(f"Successfully saved all seed predictions to 07_tfm_encdec_pytorch_predictions.npz")
+
+print(f"\n======================================================================")
+print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — 07_tfm_encdec_pytorch")
+print(f"======================================================================")
+summary_dict = {}
+metric_keys = ['mae', 'rmse', 'r2', 'wape', 'mape', 'bias', 'negative_pct', 'training_time_seconds', 'peak_gpu_memory_mb']
+for k in metric_keys:
+    vals = [m[k] for m in all_seed_metrics if k in m and not np.isnan(m[k])]
+    if vals:
+        mu, sigma = float(np.mean(vals)), float(np.std(vals))
+        print(f"  {k.upper():<22}: {mu:.4f} ± {sigma:.4f}")
+        summary_dict[k] = {"mean": mu, "std": sigma}
+
+all_mae_48 = [results_data["seeds"][str(s)]["step_48_metrics"]["mae"] for s in results_data["seeds"] if "step_48_metrics" in results_data["seeds"][str(s)]]
+if all_mae_48:
+    summary_dict["mean_mae_by_step_48"] = [float(v) for v in np.mean(all_mae_48, axis=0)]
+
+results_data["config"] = {
+    "lookback": LOOKBACK,
+    "horizon": HORIZON,
+    "batch_size": BATCH_SIZE if 'BATCH_SIZE' in globals() or 'BATCH_SIZE' in locals() else None,
+    "seeds": SEEDS if 'SEEDS' in globals() or 'SEEDS' in locals() else None,
+    "total_parameters": results_data.get("total_parameters", None)
+}
+results_data["summary"] = summary_dict
+with open(output_json_filename, "w", encoding="utf-8") as f:
+    json.dump(results_data, f, indent=2)
+print(f"Successfully saved final results to {output_json_filename}")
 print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
 
