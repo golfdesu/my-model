@@ -267,7 +267,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     optimizer = optim.Adam(model.parameters(), lr=0.0017708585791417803, weight_decay=1.7209491444104483e-06)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
-    epochs          = 100
+    epochs          = 200
     patience        = 15
     best_val_loss   = float('inf')
     train_loss_history = []
