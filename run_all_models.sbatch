@@ -57,29 +57,38 @@ run_model() {
 
 # 3. Execution Pipeline
 
-# --- Phase 1: High-Throughput GPU Deep Learning & Linear Models ---
-run_model "01/17" "03_tfm_afm_pytorch.py"            "Autoformer"
-run_model "02/17" "05_tfm_ptft_pytorch.py"           "PatchTST"
-run_model "03/17" "06_tfm_dec_pytorch.py"            "Vanilla Decoder"
-run_model "04/17" "07_tfm_encdec_pytorch.py"         "Encoder-Decoder"
-run_model "05/17" "08_lstm_baseline_pytorch.py"      "LSTM Baseline"
-run_model "06/17" "09_dlinear_baseline_pytorch.py"   "DLinear"
-run_model "07/17" "13_tfm_itfm_pytorch.py"           "iTransformer"
-run_model "08/17" "14_tfm_timesnet_pytorch.py"       "TimesNet"
-run_model "09/17" "15_nlinear_baseline_pytorch.py"   "NLinear"
-run_model "10/17" "16_gru_baseline_pytorch.py"       "GRU Baseline"
-run_model "11/17" "17_smamba_baseline_pytorch.py"     "S-Mamba"
-run_model "12/17" "18_powermamba_baseline_pytorch.py" "PowerMamba"
-run_model "13/17" "19_timemachine_baseline_pytorch.py" "TimeMachine"
-run_model "14/17" "20_s4d_baseline_pytorch.py"       "S4D Baseline"
+# --- Phase 1: Custom & Vanilla Transformers ---
+run_model "01/20" "00_tfm_custom_pytorch.py"         "Custom Transformer"
+run_model "02/20" "01_tfm_enc_pytorch.py"            "Transformer Encoder"
+run_model "03/20" "02_tfm_dec_pytorch.py"            "Transformer Decoder"
+run_model "04/20" "03_tfm_encdec_pytorch.py"         "Transformer Enc-Dec"
 
-# --- Phase 2: Tree-Based & Statistical Models (Ran at the end) ---
-run_model "15/17" "10_xgboost_baseline.py"           "XGBoost Baseline"
-run_model "16/17" "11_lightgbm_baseline.py"          "LightGBM Baseline"
-run_model "17/17" "12_sarima_baseline.py"            "SARIMA Baseline"
+# --- Phase 2: Advanced Transformers ---
+run_model "05/20" "04_tfm_ifm_pytorch.py"            "Informer"
+run_model "06/20" "05_tfm_afm_pytorch.py"            "Autoformer"
+run_model "07/20" "06_tfm_ptst_pytorch.py"           "PatchTST"
+run_model "08/20" "07_tfm_itfm_pytorch.py"           "iTransformer"
+run_model "09/20" "08_tfm_timesnet_pytorch.py"       "TimesNet"
+
+# --- Phase 3: Recurrent & Linear Models ---
+run_model "10/20" "09_lstm_baseline_pytorch.py"      "LSTM Baseline"
+run_model "11/20" "10_gru_baseline_pytorch.py"       "GRU Baseline"
+run_model "12/20" "11_dlinear_baseline_pytorch.py"   "DLinear"
+run_model "13/20" "12_nlinear_baseline_pytorch.py"   "NLinear"
+
+# --- Phase 4: State Space Models (SSM) ---
+run_model "14/20" "13_smamba_baseline_pytorch.py"     "S-Mamba"
+run_model "15/20" "14_powermamba_baseline_pytorch.py" "PowerMamba"
+run_model "16/20" "15_timemachine_baseline_pytorch.py" "TimeMachine"
+run_model "17/20" "16_s4d_baseline_pytorch.py"       "S4D Baseline"
+
+# --- Phase 5: Tree-Based & Statistical Models ---
+run_model "18/20" "17_xgboost_baseline.py"           "XGBoost Baseline"
+run_model "19/20" "18_lightgbm_baseline.py"          "LightGBM Baseline"
+run_model "20/20" "19_sarima_baseline.py"            "SARIMA Baseline"
 
 echo -e "\n=============================================================================="
-echo "ALL 17 BENCHMARKS COMPLETED!"
+echo "ALL 20 BENCHMARKS COMPLETED!"
 echo "End Time: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=============================================================================="
 exit 0

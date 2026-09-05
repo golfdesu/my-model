@@ -37,43 +37,35 @@ echo "==========================================================================
 
 # 3. Sequential Execution (Guarantees 100% Dedicated GPU per Model)
 
-echo -e "\n>>> [1/4] Starting 01_tfm_enc_pytorch.py (FP32/TF32 Baseline)..."
-START_01_FP32=$(date +%s)
+echo -e "\n>>> [1/3] Starting 01_tfm_enc_pytorch.py (Vanilla Transformer Encoder)..."
+START_01=$(date +%s)
 python -u 01_tfm_enc_pytorch.py
-END_01_FP32=$(date +%s)
-DIFF_01_FP32=$((END_01_FP32 - START_01_FP32))
-echo ">>> [1/4] Completed 01_tfm_enc_pytorch.py (Elapsed: ${DIFF_01_FP32}s)"
+END_01=$(date +%s)
+DIFF_01=$((END_01 - START_01))
+echo ">>> [1/3] Completed 01_tfm_enc_pytorch.py (Elapsed: ${DIFF_01}s)"
 
-echo -e "\n>>> [2/4] Starting 01_tfm_enc_pytorch_bf16.py (BF16 Mixed Precision)..."
-START_01_BF16=$(date +%s)
-python -u 01_tfm_enc_pytorch_bf16.py
-END_01_BF16=$(date +%s)
-DIFF_01_BF16=$((END_01_BF16 - START_01_BF16))
-echo ">>> [2/4] Completed 01_tfm_enc_pytorch_bf16.py (Elapsed: ${DIFF_01_BF16}s)"
+echo -e "\n>>> [2/3] Starting 02_tfm_dec_pytorch.py (Vanilla Transformer Decoder)..."
+START_02=$(date +%s)
+python -u 02_tfm_dec_pytorch.py
+END_02=$(date +%s)
+DIFF_02=$((END_02 - START_02))
+echo ">>> [2/3] Completed 02_tfm_dec_pytorch.py (Elapsed: ${DIFF_02}s)"
 
-echo -e "\n>>> [3/4] Starting 02_tfm_ifm_pytorch.py (FP32/TF32 Baseline)..."
-START_02_FP32=$(date +%s)
-python -u 02_tfm_ifm_pytorch.py
-END_02_FP32=$(date +%s)
-DIFF_02_FP32=$((END_02_FP32 - START_02_FP32))
-echo ">>> [3/4] Completed 02_tfm_ifm_pytorch.py (Elapsed: ${DIFF_02_FP32}s)"
-
-echo -e "\n>>> [4/4] Starting 02_tfm_ifm_pytorch_bf16.py (BF16 Mixed Precision)..."
-START_02_BF16=$(date +%s)
-python -u 02_tfm_ifm_pytorch_bf16.py
-END_02_BF16=$(date +%s)
-DIFF_02_BF16=$((END_02_BF16 - START_02_BF16))
-echo ">>> [4/4] Completed 02_tfm_ifm_pytorch_bf16.py (Elapsed: ${DIFF_02_BF16}s)"
+echo -e "\n>>> [3/3] Starting 03_tfm_encdec_pytorch.py (Vanilla Transformer Enc-Dec)..."
+START_03=$(date +%s)
+python -u 03_tfm_encdec_pytorch.py
+END_03=$(date +%s)
+DIFF_03=$((END_03 - START_03))
+echo ">>> [3/3] Completed 03_tfm_encdec_pytorch.py (Elapsed: ${DIFF_03}s)"
 
 echo -e "\n=============================================================================="
 echo "BENCHMARK SUMMARY (Total Execution Times):"
-echo "  01 Transformer (FP32) : ${DIFF_01_FP32} seconds"
-echo "  01 Transformer (BF16) : ${DIFF_01_BF16} seconds"
-echo "  02 Informer    (FP32) : ${DIFF_02_FP32} seconds"
-echo "  02 Informer    (BF16) : ${DIFF_02_BF16} seconds"
+echo "  01 Transformer Encoder : ${DIFF_01} seconds"
+echo "  02 Transformer Decoder : ${DIFF_02} seconds"
+echo "  03 Transformer Enc-Dec : ${DIFF_03} seconds"
 echo "End Time              : $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=============================================================================="
-echo "[INFO] All 4 models finished. Releasing GPU node now."
+echo "[INFO] All 3 Vanilla Transformer models finished. Releasing GPU node now."
 
 # Automatically terminates job and releases GPU back to Slurm queue
 exit 0
