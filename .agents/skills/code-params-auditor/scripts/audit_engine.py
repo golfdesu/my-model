@@ -20,7 +20,7 @@ import traceback
 
 # Workspace root
 WORKSPACE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
-STATE_FILE = os.path.join(WORKSPACE_DIR, "audit_state.json")
+STATE_FILE = os.path.join(WORKSPACE_DIR, "configs", "audit_state.json")
 
 # Model Class & Feature Mappings for PyTorch models
 PYTORCH_MODEL_MAP = {

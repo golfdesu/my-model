@@ -3,7 +3,7 @@ name: code-params-auditor
 description: >-
   Use this skill to inspect and audit forecasting code files (01-20) and validate
   hyperparameter JSON files against model architectures using the SKILL.state pattern.
-  Maintains and updates audit_state.json without running long training tasks.
+  Maintains and updates configs/audit_state.json without running long training tasks.
 ---
 
 # Code & Hyperparameter JSON Auditor (SKILL.state)
@@ -34,9 +34,9 @@ When evaluating code and JSON files, strictly verify:
 
 ---
 
-## 2. Mutable State File (`audit_state.json`)
+## 2. Mutable State File (`configs/audit_state.json`)
 
-The state of all 20 models is tracked in `audit_state.json` at the root of the workspace.
+The state of all 20 models is tracked in `configs/audit_state.json`.
 
 ```json
 {
@@ -72,6 +72,6 @@ python .agents/skills/code-params-auditor/scripts/audit_engine.py
 ```
 
 ### Procedure for the Agent:
-1. **Read Current State**: Inspect `audit_state.json` to identify pending models or missing JSON files.
+1. **Read Current State**: Inspect `configs/audit_state.json` to identify pending models or missing JSON files.
 2. **Validate Changes**: When a script is modified or a new `_best_params.json` is generated, run `audit_engine.py`.
 3. **Report Succinctly**: Report the summary count and specific issues found without dumping raw logs into conversation context.

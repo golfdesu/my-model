@@ -4,7 +4,7 @@ description: >-
   Audits time-series forecasting model implementations (01-20) against canonical
   research papers (Vaswani 2017, Informer, Autoformer, TFT, PatchTST, iTransformer,
   TimesNet, Mamba, S4D) using the SKILL.state pattern. Identifies semantic bugs,
-  theoretical deviations, and tracks paper compliance state in paper_alignment_state.json.
+  theoretical deviations, and tracks paper compliance state in configs/paper_alignment_state.json.
 ---
 
 # Paper Alignment & Bug Hunting Auditor (SKILL.state)
@@ -51,7 +51,7 @@ In scientific time-series forecasting, models rarely fail with syntax errors. In
 
 ---
 
-## 3. Mutable State (`paper_alignment_state.json`)
+## 3. Mutable State (`configs/paper_alignment_state.json`)
 
 Tracks the alignment status of every script in the repository:
 - `status`: `"ALIGNED"` | `"DEVIATED"`

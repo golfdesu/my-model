@@ -1,0 +1,391 @@
+{
+    "last_updated": "2026-09-04T18:02:59.249485",
+    "skill_name": "hpo-parsimony-selector",
+    "state_protocol": "SKILL.state (Google Research WikiSkill)",
+    "total_models": 20,
+    "summary": {
+        "total_configured": 19,
+        "pending_hpo": 1,
+        "syntax_verified": 20,
+        "paper_aligned": 20
+    },
+    "models": {
+        "01_tfm_tfm_pytorch.py": {
+            "model_id": "01",
+            "script_file": "01_tfm_tfm_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "01_hpo_tfm_pytorch",
+            "source_trial_rank": 4,
+            "val_loss": 0.0030870778441504302,
+            "params": {
+                "d_model": 128,
+                "num_heads": 4,
+                "d_ff_mult": 2,
+                "num_layers": 1,
+                "dropout_rate": 0.1,
+                "learning_rate": 0.0006412589172202276,
+                "weight_decay": 4.7084742858033325e-05,
+                "batch_size": 128
+            },
+            "selection_rationale": "Prioritizes canonical dropout rate of 0.10 over 0.05 to guard against validation overfitting on empirical EV load noise; validation loss penalty is marginal (+1.0%).",
+            "code_syntax": "VALID"
+        },
+        "02_tfm_ifm_pytorch.py": {
+            "model_id": "02",
+            "script_file": "02_tfm_ifm_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "02_hpo_ifm_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.0033779385573645257,
+            "params": {
+                "d_model": 32,
+                "num_heads": 4,
+                "d_ff_mult": 2,
+                "num_layers": 3,
+                "dropout_rate": 0.05,
+                "learning_rate": 0.00017190785731708002,
+                "weight_decay": 1.494878419588505e-06,
+                "batch_size": 64
+            },
+            "selection_rationale": "Optimal Informer configuration with balanced head dimension (d_k=8), 3 distilling layers, and stable batch size 64.",
+            "code_syntax": "VALID"
+        },
+        "03_tfm_afm_pytorch.py": {
+            "model_id": "03",
+            "script_file": "03_tfm_afm_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "03_hpo_afm_pytorch",
+            "source_trial_rank": 2,
+            "val_loss": 0.0036811343421231752,
+            "params": {
+                "d_model": 128,
+                "num_heads": 8,
+                "d_ff_mult": 4,
+                "num_layers": 2,
+                "dropout_rate": 0.1,
+                "learning_rate": 0.0006660688102168459,
+                "weight_decay": 4.931497482935789e-06,
+                "batch_size": 128
+            },
+            "selection_rationale": "Adheres to canonical Autoformer specifications with 8 multi-correlation heads (d_k=16), 4x feed-forward expansion (d_ff=512), and 0.10 dropout.",
+            "code_syntax": "VALID"
+        },
+        "04_tfm_tft_pytorch.py": {
+            "model_id": "04",
+            "script_file": "04_tfm_tft_pytorch.py",
+            "status": "PENDING_HPO",
+            "hpo_key": "04_hpo_tft_pytorch",
+            "source_trial_rank": null,
+            "val_loss": null,
+            "params": {},
+            "selection_rationale": "TFT probabilistic model pending HPO search.",
+            "code_syntax": "VALID"
+        },
+        "05_tfm_ptft_pytorch.py": {
+            "model_id": "05",
+            "script_file": "05_tfm_ptft_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "05_hpo_ptst_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.005555278574049586,
+            "params": {
+                "d_model": 128,
+                "num_heads": 4,
+                "d_ff_mult": 4,
+                "num_layers": 2,
+                "dropout_rate": 0.15000000000000002,
+                "learning_rate": 0.000182537819460785,
+                "weight_decay": 1.1711785677498206e-06,
+                "batch_size": 128,
+                "patch_len": 8,
+                "stride": 4
+            },
+            "selection_rationale": "Textbook PatchTST parameters with patch length 8, stride 4, and d_k=32 multi-head attention.",
+            "code_syntax": "VALID"
+        },
+        "06_tfm_dec_pytorch.py": {
+            "model_id": "06",
+            "script_file": "06_tfm_dec_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "06_hpo_dec_pytorch",
+            "source_trial_rank": 2,
+            "val_loss": 0.003080540057154276,
+            "params": {
+                "d_model": 128,
+                "num_heads": 2,
+                "d_ff_mult": 2,
+                "num_layers": 1,
+                "dropout_rate": 0.05,
+                "learning_rate": 0.0005455400737331499,
+                "weight_decay": 9.28578070093425e-05,
+                "batch_size": 64
+            },
+            "selection_rationale": "Adopts standard mini-batch size 64 and d_model 128 instead of oversized batch 256; ensures stochastic gradient noise prevents convergence to sharp minima.",
+            "code_syntax": "VALID"
+        },
+        "07_tfm_encdec_pytorch.py": {
+            "model_id": "07",
+            "script_file": "07_tfm_encdec_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "07_hpo_encdec_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.0031202902616921245,
+            "params": {
+                "d_model": 128,
+                "num_heads": 4,
+                "d_ff_mult": 4,
+                "num_layers": 1,
+                "dropout_rate": 0.1,
+                "learning_rate": 0.0002509898258872657,
+                "weight_decay": 8.075382022710797e-05,
+                "batch_size": 64
+            },
+            "selection_rationale": "Canonical Vaswani sequence-to-sequence structure with d_k=32, 4x feed-forward expansion, and 0.10 dropout.",
+            "code_syntax": "VALID"
+        },
+        "08_lstm_baseline_pytorch.py": {
+            "model_id": "08",
+            "script_file": "08_lstm_baseline_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "08_hpo_lstm_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.00305798926307323,
+            "params": {
+                "d_model": 32,
+                "num_layers": 2,
+                "dropout_rate": 0.05,
+                "noise_stddev": 0.01,
+                "learning_rate": 0.0002451331674531841,
+                "weight_decay": 5.590664095943572e-06,
+                "batch_size": 64
+            },
+            "selection_rationale": "Compact 2-layer stacked LSTM with 32 hidden units, mild noise jittering (0.01), and high computational efficiency.",
+            "code_syntax": "VALID"
+        },
+        "09_dlinear_baseline_pytorch.py": {
+            "model_id": "09",
+            "script_file": "09_dlinear_baseline_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "09_hpo_dlinear_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.006728148201778813,
+            "params": {
+                "kernel_size": 25,
+                "learning_rate": 0.0024015639024822476,
+                "weight_decay": 1.051414192550206e-05,
+                "batch_size": 128
+            },
+            "selection_rationale": "Moving-average decomposition kernel size 25 (12.5-hour span) effectively captures daily EV diurnal cycles.",
+            "code_syntax": "VALID"
+        },
+        "10_xgboost_baseline.py": {
+            "model_id": "10",
+            "script_file": "10_xgboost_baseline.py",
+            "status": "CONFIGURED",
+            "hpo_key": "10_hpo_xgboost",
+            "source_trial_rank": 1,
+            "val_loss": 5.291074117024739,
+            "params": {
+                "learning_rate": 0.05808381432960484,
+                "max_depth": 4,
+                "min_child_weight": 7.096220622166763,
+                "subsample": 0.6648958679659673,
+                "colsample_bytree": 0.5617104625598865,
+                "reg_alpha": 0.0008553664409816912,
+                "reg_lambda": 0.27861143653900455
+            },
+            "selection_rationale": "Max depth 4 avoids tree overfitting on flattened tabular lookback windows; subsample 0.66 provides robust bagging regularization.",
+            "code_syntax": "VALID"
+        },
+        "11_lightgbm_baseline.py": {
+            "model_id": "11",
+            "script_file": "11_lightgbm_baseline.py",
+            "status": "CONFIGURED",
+            "hpo_key": "11_hpo_lightgbm",
+            "source_trial_rank": 1,
+            "val_loss": 5.266671012244705,
+            "params": {
+                "learning_rate": 0.0782912324448459,
+                "num_leaves": 55,
+                "max_depth": 4,
+                "min_child_samples": 94,
+                "subsample": 0.8863926539765621,
+                "colsample_bytree": 0.5965008670020099,
+                "reg_alpha": 0.013878630634523076,
+                "reg_lambda": 0.0005197186104644345
+            },
+            "selection_rationale": "Optimal LightGBM configuration with shallow tree depth (max_depth=4) to prevent tabular lag memorization, high min_child_samples (94) for noise resilience, and 60% column subsampling.",
+            "code_syntax": "VALID"
+        },
+        "12_sarima_baseline.py": {
+            "model_id": "12",
+            "script_file": "12_sarima_baseline.py",
+            "status": "CONFIGURED",
+            "hpo_key": "12_hpo_sarima",
+            "source_trial_rank": 1,
+            "val_loss": 2.552409220601462,
+            "params": {
+                "p": 0,
+                "d": 1,
+                "q": 1,
+                "P": 1,
+                "D": 0,
+                "Q": 1
+            },
+            "selection_rationale": "Selects most parsimonious (0, 1, 1)(1, 0, 1)_48 configuration with minimal AR/MA order (3 parameters) achieving lowest validation RMSE.",
+            "code_syntax": "VALID"
+        },
+        "13_tfm_itfm_pytorch.py": {
+            "model_id": "13",
+            "script_file": "13_tfm_itfm_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "13_hpo_itfm_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.0030287263015329764,
+            "params": {
+                "d_model": 32,
+                "num_heads": 4,
+                "d_ff_mult": 4,
+                "num_layers": 3,
+                "dropout_rate": 0.15000000000000002,
+                "learning_rate": 0.0017708585791417803,
+                "weight_decay": 1.7209491444104483e-06,
+                "batch_size": 128
+            },
+            "selection_rationale": "Project-wide top performer: 32-dim inverted variate tokens across 3 deep self-attention layers capture cross-variate correlations with minimal parameter footprint.",
+            "code_syntax": "VALID"
+        },
+        "14_tfm_timesnet_pytorch.py": {
+            "model_id": "14",
+            "script_file": "14_tfm_timesnet_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "14_hpo_timesnet_pytorch",
+            "source_trial_rank": 2,
+            "val_loss": 0.003278428497213358,
+            "params": {
+                "d_model": 32,
+                "d_ff_mult": 4,
+                "num_layers": 3,
+                "top_k": 4,
+                "num_kernels": 4,
+                "dropout_rate": 0.2,
+                "learning_rate": 0.0011311694756729275,
+                "weight_decay": 0.000697139666328406,
+                "batch_size": 128
+            },
+            "selection_rationale": "Within epsilon-tolerance (+0.88%), Trial 11 utilizes mini-batch size 128 (avoiding sharp minima of batch size 256 in Trial 14) and balanced 0.20 dropout rate to preserve stochastic gradient exploration and prevent overfitting.",
+            "code_syntax": "VALID"
+        },
+        "15_nlinear_baseline_pytorch.py": {
+            "model_id": "15",
+            "script_file": "15_nlinear_baseline_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "15_hpo_nlinear_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.0070468889030276755,
+            "params": {
+                "learning_rate": 0.0007436705882390548,
+                "weight_decay": 6.408391359387875e-05,
+                "batch_size": 128
+            },
+            "selection_rationale": "Optimal single-layer linear head with weight decay regularization 6.4e-5 and standard Adam learning rate.",
+            "code_syntax": "VALID"
+        },
+        "16_gru_baseline_pytorch.py": {
+            "model_id": "16",
+            "script_file": "16_gru_baseline_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "16_hpo_gru_pytorch",
+            "source_trial_rank": 2,
+            "val_loss": 0.0031110167856860205,
+            "params": {
+                "d_model": 32,
+                "num_layers": 2,
+                "dropout_rate": 0.05,
+                "noise_stddev": 0.05,
+                "learning_rate": 0.0002879072269095514,
+                "weight_decay": 1.1837388071721317e-05,
+                "batch_size": 64
+            },
+            "selection_rationale": "Favors 2-layer stacked GRU over single layer for robust hierarchical temporal feature abstraction; validation loss divergence is negligible (+0.03%).",
+            "code_syntax": "VALID"
+        },
+        "17_smamba_baseline_pytorch.py": {
+            "model_id": "17",
+            "script_file": "17_smamba_baseline_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "17_hpo_smamba_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.0032186871934752597,
+            "params": {
+                "d_model": 128,
+                "d_state": 32,
+                "num_layers": 2,
+                "dropout_rate": 0.2,
+                "learning_rate": 0.0009199242357311898,
+                "weight_decay": 9.241634598289258e-05,
+                "batch_size": 128
+            },
+            "selection_rationale": "Top-performing 2-layer S-Mamba architecture (L=2, d=128, d_state=32) with robust 0.20 dropout regularization and stable mini-batch size 128; outperforms all other candidates by >1.3%.",
+            "code_syntax": "VALID"
+        },
+        "18_powermamba_baseline_pytorch.py": {
+            "model_id": "18",
+            "script_file": "18_powermamba_baseline_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "18_hpo_powermamba_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.003207094915690368,
+            "params": {
+                "d_model": 64,
+                "d_state": 16,
+                "kernel_size": 37,
+                "num_layers": 1,
+                "dropout_rate": 0.1,
+                "learning_rate": 0.0010334896712376827,
+                "weight_decay": 6.137887541958836e-05,
+                "batch_size": 128
+            },
+            "selection_rationale": "Numerical global minimizer with larger state dimension (d_state=16), robust 0.10 dropout, and kernel_size=37 for 18.5h diurnal trend filtering.",
+            "code_syntax": "VALID"
+        },
+        "19_timemachine_baseline_pytorch.py": {
+            "model_id": "19",
+            "script_file": "19_timemachine_baseline_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "19_hpo_timemachine_pytorch",
+            "source_trial_rank": 2,
+            "val_loss": 0.003246822683927503,
+            "params": {
+                "d_model": 32,
+                "d_state": 8,
+                "num_layers": 1,
+                "dropout_rate": 0.1,
+                "learning_rate": 0.0004199170815720567,
+                "weight_decay": 3.296534470000322e-05,
+                "batch_size": 64
+            },
+            "selection_rationale": "Within epsilon-tolerance (+0.077% loss difference), Trial 32 adopts canonical 0.10 dropout (vs 0.05 in Trial 48), mini-batch size 64 (vs 256), and compact d_model=32 (vs 64), providing robust regularization and stochastic exploration.",
+            "code_syntax": "VALID"
+        },
+        "20_s4d_baseline_pytorch.py": {
+            "model_id": "20",
+            "script_file": "20_s4d_baseline_pytorch.py",
+            "status": "CONFIGURED",
+            "hpo_key": "20_hpo_s4d_pytorch",
+            "source_trial_rank": 1,
+            "val_loss": 0.003200398529920854,
+            "params": {
+                "d_model": 32,
+                "d_state": 32,
+                "num_layers": 1,
+                "dropout_rate": 0.1,
+                "learning_rate": 0.00045745782054754043,
+                "weight_decay": 1.2172958098369984e-05,
+                "batch_size": 64
+            },
+            "selection_rationale": "Global numerical minimizer outperforming runner-up by >6.7% while naturally satisfying production parsimony criteria: canonical dropout 0.10, mini-batch size 64, and compact d_model=32, d_state=32.",
+            "code_syntax": "VALID"
+        }
+    }
+}

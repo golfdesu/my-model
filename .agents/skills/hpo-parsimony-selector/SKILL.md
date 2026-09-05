@@ -3,7 +3,7 @@ name: hpo-parsimony-selector
 description: >-
   Audits, selects, and structures production-ready hyperparameters from HPO runs
   using the epsilon-tolerance parsimony selection rule (Hastie et al., 2009).
-  Maintains the unified master configuration registry in selected_production_params.json
+  Maintains the unified master configuration registry in configs/selected_production_params.json
   while preserving raw Optuna outputs in <file_id>_best_params.json.
 ---
 
@@ -22,8 +22,8 @@ To prevent Optuna training scripts from overwriting human/agent-curated producti
    - Contains raw, unconstrained numerical minimizers (`best_val_loss`, `best_params`, `top_10_trials`).
    - Remains **immutable** to manual curation so future HPO reruns do not lose production annotations.
 
-2. **Master Production Registry (`selected_production_params.json`)**:
-   - Single unified JSON file at the project root.
+2. **Master Production Registry (`configs/selected_production_params.json`)**:
+   - Unified JSON file in the `configs/` directory.
    - Contains both the curated `selected_for_production` configuration and the reference `best_optuna_raw` minimizer for all models.
    - Used by evaluation pipelines, retraining scripts, and final benchmark comparison tables.
 
@@ -46,9 +46,9 @@ Within this tolerance margin, the configuration with the **highest architectural
 
 ---
 
-## 3. Master Registry Schema (`selected_production_params.json`)
+## 3. Master Registry Schema (`configs/selected_production_params.json`)
 
-All entries in `selected_production_params.json` must be strictly in **English**:
+All entries in `configs/selected_production_params.json` must be strictly in **English**:
 
 ```json
 {

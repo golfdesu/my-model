@@ -1,0 +1,245 @@
+{
+    "last_updated": "2026-09-04T19:43:01.361180",
+    "target_dir": "C:\\Users\\chaya\\Documents\\Program\\Practice\\model",
+    "total_models_scanned": 20,
+    "summary": {
+        "fully_aligned": 20,
+        "deviated_or_bugs": 0
+    },
+    "results": {
+        "01_tfm_tfm_pytorch.py": {
+            "file": "01_tfm_tfm_pytorch.py",
+            "model_id": "01",
+            "model_name": "Vanilla Transformer",
+            "paper_reference": "Vaswani et al. (NIPS 2017) - Attention Is All You Need",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Uses multi-head self-attention",
+                "Uses LayerNorm residual connections"
+            ],
+            "deviations": []
+        },
+        "02_tfm_ifm_pytorch.py": {
+            "file": "02_tfm_ifm_pytorch.py",
+            "model_id": "02",
+            "model_name": "Informer",
+            "paper_reference": "Zhou et al. (AAAI 2021) - Informer: Beyond Efficient Transformer",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Implements ProbSparse Attention",
+                "Implements distilling layer with MaxPool1d"
+            ],
+            "deviations": []
+        },
+        "03_tfm_afm_pytorch.py": {
+            "file": "03_tfm_afm_pytorch.py",
+            "model_id": "03",
+            "model_name": "Autoformer",
+            "paper_reference": "Wu et al. (NeurIPS 2021) - Autoformer: Decomposing Transformers with Auto-Correlation",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Uses moving average series decomposition",
+                "Uses AutoCorrelation / delay aggregation"
+            ],
+            "deviations": []
+        },
+        "04_tfm_tft_pytorch.py": {
+            "file": "04_tfm_tft_pytorch.py",
+            "model_id": "04",
+            "model_name": "TFT (Temporal Fusion Transformer)",
+            "paper_reference": "Lim et al. (IJF 2021) - Temporal Fusion Transformers for Interpretable Multi-horizon Time Series Forecasting",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Variable Selection Network",
+                "Gated Residual Network",
+                "Utilizes known-future calendar covariates"
+            ],
+            "deviations": []
+        },
+        "05_tfm_ptft_pytorch.py": {
+            "file": "05_tfm_ptft_pytorch.py",
+            "model_id": "05",
+            "model_name": "PatchTST",
+            "paper_reference": "Nie et al. (ICLR 2023) - A Time Series is Worth 64 Words: Long-term Forecasting with Transformers",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Sub-series patching implementation",
+                "Independent channels per variate"
+            ],
+            "deviations": []
+        },
+        "06_tfm_dec_pytorch.py": {
+            "file": "06_tfm_dec_pytorch.py",
+            "model_id": "06",
+            "model_name": "Vanilla Decoder",
+            "paper_reference": "Vaswani et al. (NIPS 2017) / Radford et al. - Autoregressive Causal Decoder",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Applies upper triangular causal mask"
+            ],
+            "deviations": []
+        },
+        "07_tfm_encdec_pytorch.py": {
+            "file": "07_tfm_encdec_pytorch.py",
+            "model_id": "07",
+            "model_name": "Encoder-Decoder",
+            "paper_reference": "Vaswani et al. (NIPS 2017) - Sequence to Sequence Cross-Attention",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Cross-attention mechanism"
+            ],
+            "deviations": []
+        },
+        "08_lstm_baseline_pytorch.py": {
+            "file": "08_lstm_baseline_pytorch.py",
+            "model_id": "08",
+            "model_name": "LSTM Baseline",
+            "paper_reference": "Hochreiter & Schmidhuber (1997) - Long Short-Term Memory",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "PyTorch nn.LSTM sequence layer"
+            ],
+            "deviations": []
+        },
+        "09_dlinear_baseline_pytorch.py": {
+            "file": "09_dlinear_baseline_pytorch.py",
+            "model_id": "09",
+            "model_name": "DLinear",
+            "paper_reference": "Zeng et al. (AAAI 2023) - Are Transformers Effective for Time Series Forecasting?",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "1-layer linear trend head",
+                "1-layer linear seasonal head"
+            ],
+            "deviations": []
+        },
+        "10_xgboost_baseline.py": {
+            "file": "10_xgboost_baseline.py",
+            "model_id": "10",
+            "model_name": "XGBoost Direct",
+            "paper_reference": "Chen & Guestrin (KDD 2016) - XGBoost: A Scalable Tree Boosting System",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "XGBoost regressor"
+            ],
+            "deviations": []
+        },
+        "11_lightgbm_baseline.py": {
+            "file": "11_lightgbm_baseline.py",
+            "model_id": "11",
+            "model_name": "LightGBM Direct",
+            "paper_reference": "Ke et al. (NeurIPS 2017) - LightGBM: A Highly Efficient Gradient Boosting Decision Tree",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "LightGBM regressor"
+            ],
+            "deviations": []
+        },
+        "12_sarima_baseline.py": {
+            "file": "12_sarima_baseline.py",
+            "model_id": "12",
+            "model_name": "SARIMA Baseline",
+            "paper_reference": "Box & Jenkins (1970) - Time Series Analysis: Forecasting and Control",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Seasonal ARIMA model"
+            ],
+            "deviations": []
+        },
+        "13_tfm_itfm_pytorch.py": {
+            "file": "13_tfm_itfm_pytorch.py",
+            "model_id": "13",
+            "model_name": "iTransformer",
+            "paper_reference": "Liu et al. (ICLR 2024) - iTransformer: Inverted Transformers Are Effective for Time Series Forecasting",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Projects variates across time lookback (Inverted tokens)",
+                "Cross-variate attention"
+            ],
+            "deviations": []
+        },
+        "14_tfm_timesnet_pytorch.py": {
+            "file": "14_tfm_timesnet_pytorch.py",
+            "model_id": "14",
+            "model_name": "TimesNet",
+            "paper_reference": "Wu et al. (ICLR 2023) - TimesNet: Temporal 2D-Variation Modeling for Time Series Analysis",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "FFT frequency analysis",
+                "2D convolutional Inception block"
+            ],
+            "deviations": []
+        },
+        "15_nlinear_baseline_pytorch.py": {
+            "file": "15_nlinear_baseline_pytorch.py",
+            "model_id": "15",
+            "model_name": "NLinear",
+            "paper_reference": "Zeng et al. (AAAI 2023) - Are Transformers Effective for Time Series Forecasting?",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Subtracts sequence tail value (Instance Normalization)"
+            ],
+            "deviations": []
+        },
+        "16_gru_baseline_pytorch.py": {
+            "file": "16_gru_baseline_pytorch.py",
+            "model_id": "16",
+            "model_name": "GRU Baseline",
+            "paper_reference": "Cho et al. (EMNLP 2014); Chung et al. (NIPS 2014) - Gated Recurrent Unit",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "PyTorch nn.GRU sequence layer"
+            ],
+            "deviations": []
+        },
+        "17_smamba_baseline_pytorch.py": {
+            "file": "17_smamba_baseline_pytorch.py",
+            "model_id": "17",
+            "model_name": "S-Mamba",
+            "paper_reference": "Wang et al. (2024); Gu & Dao (2023) - S-Mamba / Mamba: Linear-Time Sequence Modeling",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Selective State Space Model core",
+                "Bidirectional temporal scan"
+            ],
+            "deviations": []
+        },
+        "18_powermamba_baseline_pytorch.py": {
+            "file": "18_powermamba_baseline_pytorch.py",
+            "model_id": "18",
+            "model_name": "PowerMamba",
+            "paper_reference": "Menati et al. (2024) - PowerMamba: Lightweight State Space Model for Energy Forecasting",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Moving average series decomposition",
+                "Selective SSM on seasonal component",
+                "Linear projection on trend component"
+            ],
+            "deviations": []
+        },
+        "19_timemachine_baseline_pytorch.py": {
+            "file": "19_timemachine_baseline_pytorch.py",
+            "model_id": "19",
+            "model_name": "TimeMachine",
+            "paper_reference": "Ahamed & Cheng (2024) - TimeMachine: A Time-Series is Worth 4 Mambas for Long-term Forecasting",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Cross-time Mamba branch",
+                "Cross-channel/variate Mamba branch"
+            ],
+            "deviations": []
+        },
+        "20_s4d_baseline_pytorch.py": {
+            "file": "20_s4d_baseline_pytorch.py",
+            "model_id": "20",
+            "model_name": "S4D Baseline",
+            "paper_reference": "Gu et al. (ICLR 2022) - Efficiently Modeling Long Sequences with Structured State Spaces (S4D)",
+            "status": "ALIGNED",
+            "checked_mechanisms": [
+                "Diagonal state space kernel",
+                "FFT circular convolution"
+            ],
+            "deviations": []
+        }
+    }
+}
