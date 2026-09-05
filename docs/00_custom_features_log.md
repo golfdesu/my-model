@@ -10,7 +10,7 @@
 
 | รายการ | การตั้งค่าปัจจุบันใน `00_tfm_custom_pytorch.py` | เปรียบเทียบกับโมเดล 01 |
 | :--- | :--- | :--- |
-| **Active Custom Feature** | **Attention Weight Orthogonal Regularization** ($\lambda = 10^{-4}$) | 01 ไม่มี (เพิ่มเข้ามาเฉพาะใน 00) |
+| **Active Custom Feature** | **Attention Weight Orthogonal Regularization** ($\lambda = 4.5727 \times 10^{-6}$, จูนได้จาก 1D Optuna HPO) | 01 ไม่มี (เพิ่มเข้ามาเฉพาะใน 00) |
 | **Positional Encoding** | Fixed Sinusoidal (Vaswani et al., 2017) | เหมือน 01 (100%) |
 | **Input Noise** | None (ไม่มีการใส่ Gaussian Noise) | เหมือน 01 (100%) |
 | **Architecture Topology** | $d_{\text{model}}=128$, $\text{heads}=4$, $d_{\text{ff}}=256$, $\text{layers}=1$, $\text{dropout}=0.1$ | เหมือน 01 (100%) |
@@ -113,5 +113,6 @@ def compute_orthogonal_penalty(model, strength=1e-4):
 
 | รหัสการทดลอง | วันที่ | สิ่งที่ Custom เพิ่มเติม | MAE รวม | RMSE รวม | $R^2$ | Peak WAPE | หมายเหตุ |
 | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :--- |
-| **01 (Baseline)** | Benchmark | Vanilla Transformer (ไม่มี Custom) | - | - | - | - | ค่ามาตรฐาน Vaswani 2017 |
-| **00 (Run 1)** | 2026-09-05 | Active: Attention Orthogonal Reg ($\lambda=10^{-4}$) | *รอรัน* | *รอรัน* | *รอรัน* | *รอรัน* | วัดผลกระทบของ Orthogonal Reg เดี่ยวๆ |
+| **01 (Baseline)** | Benchmark | Vanilla Transformer (ไม่มี Custom) | - | - | - | - | ค่ามาตรฐาน Vaswani 2017 (Val Loss = 0.003087) |
+| **00 (HPO)** | 2026-09-05 | 1D Optuna Search (50 trials, 30 epochs) -> $\lambda^* = 4.5727 \times 10^{-6}$ | Val Loss = 0.003006 | - | - | - | ชนะโมเดล 01 (Trial 25, Val Loss ดีกว่า 01) |
+| **00 (Benchmark)** | 2026-09-05 | 10-Seed Benchmark ด้วย $\lambda^* = 4.5727 \times 10^{-6}$ | *พร้อมรัน* | *พร้อมรัน* | *พร้อมรัน* | *พร้อมรัน* | สั่งรันผ่าน run_benchmark_00.sbatch บน H100 |

@@ -202,7 +202,7 @@ class EncoderOnlyTransformer(nn.Module):
 # ==============================================================================
 # 4. Custom Feature: Attention Orthogonal Regularization
 # ==============================================================================
-def compute_orthogonal_penalty(model, strength=1e-4):
+def compute_orthogonal_penalty(model, strength=4.57266747504827e-06):
     """
     [ACTIVE CUSTOM FEATURE]
     Penalizes weight matrices that deviate from orthogonality: strength * ||W^T W - I||_F^2
@@ -264,8 +264,8 @@ WEIGHT_DECAY        = 4.7084742858033325e-05
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
-# Custom Regularization Hyperparameter
-ATTN_ORTHOGONAL_REG = 1e-4
+# Custom Regularization Hyperparameter (Optimal value from Optuna 1D HPO: Trial 25, Val Loss: 0.00300578)
+ATTN_ORTHOGONAL_REG = 4.57266747504827e-06
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
