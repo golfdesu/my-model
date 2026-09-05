@@ -16,6 +16,14 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+import scipy.optimize
+
+# Compatibility fix: SciPy 1.15+ removed 'disp' from fmin_l_bfgs_b, which statsmodels still passes
+_orig_fmin_l_bfgs_b = scipy.optimize.fmin_l_bfgs_b
+def _patched_fmin_l_bfgs_b(*args, **kwargs):
+    kwargs.pop('disp', None)
+    return _orig_fmin_l_bfgs_b(*args, **kwargs)
+scipy.optimize.fmin_l_bfgs_b = _patched_fmin_l_bfgs_b
 
 warnings.filterwarnings('ignore')
 

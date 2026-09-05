@@ -321,7 +321,6 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if seed_idx == 1:
         print(f"Model Parameters: {total_params:,}")
-        md_lines.append(f"**Model Parameters:** {total_params:,}\n\n")
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.0011311694756729275, weight_decay=0.000697139666328406)

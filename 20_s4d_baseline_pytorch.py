@@ -248,9 +248,6 @@ train_dataset = TensorDataset(X_train_t, y_train_t)
 val_dataset   = TensorDataset(X_val_t, y_val_t)
 test_dataset  = TensorDataset(X_test_t, y_test_t)
 
-with open(output_md_filename, "w", encoding="utf-8") as f:
-    f.write(f"# S4D Baseline PyTorch Benchmark Results\n\n- Lookback: {LOOKBACK}\n- Horizon: {HORIZON}\n- Batch Size: {BATCH_SIZE}\n- Seeds: {SEEDS}\n\n")
-
 print(f"Starting Automated {len(SEEDS)}-Seed Loop for 20_s4d_baseline_pytorch in PyTorch...")
 
 all_seed_metrics = []
