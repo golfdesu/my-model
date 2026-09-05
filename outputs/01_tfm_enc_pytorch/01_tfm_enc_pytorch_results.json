@@ -1,5 +1,5 @@
 {
-  "model_name": "01_tfm_tfm_pytorch",
+  "model_name": "01_tfm_enc_pytorch",
   "seeds": {
     "42": {
       "training_time_seconds": 19.66,

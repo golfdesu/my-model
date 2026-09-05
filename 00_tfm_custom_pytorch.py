@@ -3,11 +3,11 @@
 
 # # 00_tfm_custom_pytorch.py
 # Custom Encoder-Only Transformer in PyTorch for EV Charging Load Forecasting (L=96, H=48)
-# Base Architecture: 01_tfm_tfm_pytorch.py (Vanilla Transformer - Vaswani et al., NIPS 2017)
+# Base Architecture: 01_tfm_enc_pytorch.py (Vanilla Transformer - Vaswani et al., NIPS 2017)
 #
 # Customization State:
 # - Active Custom Feature: Attention Weight Orthogonal Regularization (strength=1e-4, ||W^T W - I||_F^2)
-# - All other hyperparameters, embeddings, and architectures remain 100% identical to 01_tfm_tfm_pytorch.py
+# - All other hyperparameters, embeddings, and architectures remain 100% identical to 01_tfm_enc_pytorch.py
 # - See docs/00_custom_features_log.md for full customization backlog and activation roadmap.
 
 import sys
@@ -270,7 +270,7 @@ ATTN_ORTHOGONAL_REG = 4.57266747504827e-06
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
     "model_name": "00_tfm_custom_pytorch",
-    "base_model": "01_tfm_tfm_pytorch",
+    "base_model": "01_tfm_enc_pytorch",
     "active_custom_features": ["attention_orthogonal_regularization"],
     "attn_orthogonal_reg_strength": ATTN_ORTHOGONAL_REG,
     "seeds": {},

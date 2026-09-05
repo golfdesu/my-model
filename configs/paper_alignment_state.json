@@ -7,8 +7,8 @@
         "deviated_or_bugs": 0
     },
     "results": {
-        "01_tfm_tfm_pytorch.py": {
-            "file": "01_tfm_tfm_pytorch.py",
+        "01_tfm_enc_pytorch.py": {
+            "file": "01_tfm_enc_pytorch.py",
             "model_id": "01",
             "model_name": "Vanilla Transformer",
             "paper_reference": "Vaswani et al. (NIPS 2017) - Attention Is All You Need",

@@ -10,9 +10,9 @@
         "paper_aligned": 20
     },
     "models": {
-        "01_tfm_tfm_pytorch.py": {
+        "01_tfm_enc_pytorch.py": {
             "model_id": "01",
-            "script_file": "01_tfm_tfm_pytorch.py",
+            "script_file": "01_tfm_enc_pytorch.py",
             "status": "CONFIGURED",
             "hpo_key": "01_hpo_tfm_pytorch",
             "source_trial_rank": 4,

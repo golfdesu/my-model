@@ -215,9 +215,9 @@ LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
 BATCH_SIZE = 128
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
-output_json_filename = "01_tfm_tfm_pytorch_bf16_results.json"
+output_json_filename = "01_tfm_enc_pytorch_bf16_results.json"
 results_data = {
-    "model_name": "01_tfm_tfm_pytorch_bf16",
+    "model_name": "01_tfm_enc_pytorch_bf16",
     "precision": "bfloat16_autocast",
     "seeds": {},
     "summary": {}
@@ -239,7 +239,7 @@ train_dataset = TensorDataset(X_train_t, y_train_t)
 val_dataset   = TensorDataset(X_val_t, y_val_t)
 test_dataset  = TensorDataset(X_test_t, y_test_t)
 
-print(f"Starting Automated {len(SEEDS)}-Seed Loop for 01_tfm_tfm_pytorch_bf16 in PyTorch...")
+print(f"Starting Automated {len(SEEDS)}-Seed Loop for 01_tfm_enc_pytorch_bf16 in PyTorch...")
 
 for seed_idx, SEED in enumerate(SEEDS, 1):
     seed_start_time = time.time()
@@ -391,9 +391,9 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     if best_val_loss < best_overall_val_loss and best_model_weights is not None:
         best_overall_val_loss = best_val_loss
         best_seed_id = SEED
-        torch.save(best_model_weights, f"01_tfm_tfm_pytorch_bf16_best.pt")
+        torch.save(best_model_weights, f"01_tfm_enc_pytorch_bf16_best.pt")
         results_data["best_seed"] = int(SEED)
-        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> 01_tfm_tfm_pytorch_bf16_best.pt")
+        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> 01_tfm_enc_pytorch_bf16_best.pt")
 
     results_data["seeds"][str(SEED)] = {
         "training_time_seconds": seed_duration,
@@ -419,11 +419,11 @@ all_predictions["y_true"] = y_test_seq_unscaled.astype(np.float32)
 pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in SEEDS], axis=0)
 all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
 all_predictions["pred_std"] = np.std(pred_stack, axis=0).astype(np.float32)
-np.savez_compressed(f"01_tfm_tfm_pytorch_bf16_predictions.npz", **all_predictions)
-print(f"Successfully saved all seed predictions to 01_tfm_tfm_pytorch_bf16_predictions.npz")
+np.savez_compressed(f"01_tfm_enc_pytorch_bf16_predictions.npz", **all_predictions)
+print(f"Successfully saved all seed predictions to 01_tfm_enc_pytorch_bf16_predictions.npz")
 
 print(f"\n======================================================================")
-print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — 01_tfm_tfm_pytorch_bf16")
+print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — 01_tfm_enc_pytorch_bf16")
 print(f"======================================================================")
 summary_dict = {}
 metric_keys = ['mae', 'rmse', 'r2', 'wape', 'mape', 'bias', 'negative_pct', 'training_time_seconds', 'peak_gpu_memory_mb']

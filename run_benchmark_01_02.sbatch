@@ -37,19 +37,19 @@ echo "==========================================================================
 
 # 3. Sequential Execution (Guarantees 100% Dedicated GPU per Model)
 
-echo -e "\n>>> [1/4] Starting 01_tfm_tfm_pytorch.py (FP32/TF32 Baseline)..."
+echo -e "\n>>> [1/4] Starting 01_tfm_enc_pytorch.py (FP32/TF32 Baseline)..."
 START_01_FP32=$(date +%s)
-python -u 01_tfm_tfm_pytorch.py
+python -u 01_tfm_enc_pytorch.py
 END_01_FP32=$(date +%s)
 DIFF_01_FP32=$((END_01_FP32 - START_01_FP32))
-echo ">>> [1/4] Completed 01_tfm_tfm_pytorch.py (Elapsed: ${DIFF_01_FP32}s)"
+echo ">>> [1/4] Completed 01_tfm_enc_pytorch.py (Elapsed: ${DIFF_01_FP32}s)"
 
-echo -e "\n>>> [2/4] Starting 01_tfm_tfm_pytorch_bf16.py (BF16 Mixed Precision)..."
+echo -e "\n>>> [2/4] Starting 01_tfm_enc_pytorch_bf16.py (BF16 Mixed Precision)..."
 START_01_BF16=$(date +%s)
-python -u 01_tfm_tfm_pytorch_bf16.py
+python -u 01_tfm_enc_pytorch_bf16.py
 END_01_BF16=$(date +%s)
 DIFF_01_BF16=$((END_01_BF16 - START_01_BF16))
-echo ">>> [2/4] Completed 01_tfm_tfm_pytorch_bf16.py (Elapsed: ${DIFF_01_BF16}s)"
+echo ">>> [2/4] Completed 01_tfm_enc_pytorch_bf16.py (Elapsed: ${DIFF_01_BF16}s)"
 
 echo -e "\n>>> [3/4] Starting 02_tfm_ifm_pytorch.py (FP32/TF32 Baseline)..."
 START_02_FP32=$(date +%s)

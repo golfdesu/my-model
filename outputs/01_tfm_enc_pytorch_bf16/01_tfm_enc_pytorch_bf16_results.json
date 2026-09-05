@@ -1,5 +1,5 @@
 {
-  "model_name": "01_tfm_tfm_pytorch_bf16",
+  "model_name": "01_tfm_enc_pytorch_bf16",
   "precision": "bfloat16_autocast",
   "seeds": {
     "42": {
