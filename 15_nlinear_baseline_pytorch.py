@@ -295,7 +295,9 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         print(f"  [{label}] MAE: {step_metrics['mae']:.4f}, RMSE: {step_metrics['rmse']:.4f}, WAPE: {step_metrics['wape']:.2f}%")
 
     seed_duration = round(time.time() - seed_start_time, 2)
+    peak_vram_mb = round(torch.cuda.max_memory_allocated() / (1024**2), 2) if device.type == 'cuda' else 0.0
     metrics["training_time_seconds"] = seed_duration
+    metrics["peak_gpu_memory_mb"] = peak_vram_mb
 
     # 48-step full horizon evaluation (24-hour error degradation)
     mae_48 = [float(mean_absolute_error(y_true_kw[:, s], y_pred_kw[:, s])) for s in range(HORIZON)]
