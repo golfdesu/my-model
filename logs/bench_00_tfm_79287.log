@@ -1,0 +1,522 @@
+==============================================================================
+Job ID           : 79287
+Node Allocated   : compute4
+Start Time       : 2026-09-05 18:16:45
+Python Executable: /home/690631079/project/my-model/.venv/bin/python
+PyTorch Version  : 2.13.0+cu130
+GPU Model        : NVIDIA H100 80GB HBM3
+==============================================================================
+
+>>> Starting 00_tfm_custom_pytorch.py (10-Seed Benchmark on H100)...
+PyTorch Version: 2.13.0+cu130
+Using Device: cuda
+GPU Model: NVIDIA H100 80GB HBM3
+Dataset Loaded successfully from ../data_cleaned/acn_caltech_ready2.csv! Total Rows: 32435, Features Count: 27
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+Pre-building sequence tensors...
+Starting Automated 10-Seed Loop for 00_tfm_custom_pytorch in PyTorch...
+
+=========================================================================
+RUNNING SEED 42 (1/10)
+=========================================================================
+Early stopping triggered at epoch 38. Best Val Loss: 0.003115
+## SEED 42
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.4080 kW
+  Overall RMSE  : 7.6607 kW
+  Overall R²    : 0.6947
+  Overall MAPE  : 686.31%
+  Overall WAPE  : 63.44%
+  Peak Zone MAE : 14.9428 kW
+  Peak Zone WAPE: 30.82%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.2059 kW
+  Overall RMSE  : 7.5547 kW
+  Overall R²    : 0.7031
+  Overall MAPE  : 621.86%
+  Overall WAPE  : 61.10%
+  Peak Zone MAE : 13.0828 kW
+  Peak Zone WAPE: 26.98%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.3845 kW
+  Overall RMSE  : 7.6282 kW
+  Overall R²    : 0.6973
+  Overall MAPE  : 656.14%
+  Overall WAPE  : 63.18%
+  Peak Zone MAE : 11.6825 kW
+  Peak Zone WAPE: 24.09%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 5.9375 kW
+  Overall RMSE  : 8.3565 kW
+  Overall R²    : 0.6307
+  Overall MAPE  : 640.29%
+  Overall WAPE  : 70.15%
+  Peak Zone MAE : 13.9412 kW
+  Peak Zone WAPE: 28.79%
+=================================================================================
+
+  [Checkpoint] New overall best model saved from SEED 42 (Val Loss: 0.003115) -> 00_tfm_custom_pytorch_best.pt
+Successfully saved SEED 42 results to 00_tfm_custom_pytorch_results.json (Runtime: 39.52s)
+
+=========================================================================
+RUNNING SEED 123 (2/10)
+=========================================================================
+Early stopping triggered at epoch 49. Best Val Loss: 0.003046
+## SEED 123
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.6684 kW
+  Overall RMSE  : 7.8801 kW
+  Overall R²    : 0.6769
+  Overall MAPE  : 686.29%
+  Overall WAPE  : 66.50%
+  Peak Zone MAE : 12.2024 kW
+  Peak Zone WAPE: 25.17%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.6867 kW
+  Overall RMSE  : 7.8107 kW
+  Overall R²    : 0.6827
+  Overall MAPE  : 701.29%
+  Overall WAPE  : 66.74%
+  Peak Zone MAE : 10.8940 kW
+  Peak Zone WAPE: 22.47%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.6000 kW
+  Overall RMSE  : 7.7532 kW
+  Overall R²    : 0.6873
+  Overall MAPE  : 672.59%
+  Overall WAPE  : 65.71%
+  Peak Zone MAE : 11.0021 kW
+  Peak Zone WAPE: 22.69%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 5.8605 kW
+  Overall RMSE  : 8.1279 kW
+  Overall R²    : 0.6506
+  Overall MAPE  : 621.00%
+  Overall WAPE  : 69.25%
+  Peak Zone MAE : 12.8779 kW
+  Peak Zone WAPE: 26.59%
+=================================================================================
+
+  [Checkpoint] New overall best model saved from SEED 123 (Val Loss: 0.003046) -> 00_tfm_custom_pytorch_best.pt
+Successfully saved SEED 123 results to 00_tfm_custom_pytorch_results.json (Runtime: 49.67s)
+
+=========================================================================
+RUNNING SEED 456 (3/10)
+=========================================================================
+Early stopping triggered at epoch 51. Best Val Loss: 0.003124
+## SEED 456
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.5839 kW
+  Overall RMSE  : 7.8997 kW
+  Overall R²    : 0.6753
+  Overall MAPE  : 688.18%
+  Overall WAPE  : 65.51%
+  Peak Zone MAE : 12.8113 kW
+  Peak Zone WAPE: 26.42%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.5267 kW
+  Overall RMSE  : 7.8344 kW
+  Overall R²    : 0.6807
+  Overall MAPE  : 709.64%
+  Overall WAPE  : 64.86%
+  Peak Zone MAE : 12.2636 kW
+  Peak Zone WAPE: 25.29%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.6140 kW
+  Overall RMSE  : 7.7628 kW
+  Overall R²    : 0.6865
+  Overall MAPE  : 725.03%
+  Overall WAPE  : 65.88%
+  Peak Zone MAE : 12.3035 kW
+  Peak Zone WAPE: 25.37%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 5.8788 kW
+  Overall RMSE  : 8.3385 kW
+  Overall R²    : 0.6323
+  Overall MAPE  : 639.91%
+  Overall WAPE  : 69.46%
+  Peak Zone MAE : 12.8087 kW
+  Peak Zone WAPE: 26.45%
+=================================================================================
+
+Successfully saved SEED 456 results to 00_tfm_custom_pytorch_results.json (Runtime: 43.35s)
+
+=========================================================================
+RUNNING SEED 789 (4/10)
+=========================================================================
+Early stopping triggered at epoch 50. Best Val Loss: 0.003040
+## SEED 789
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.4973 kW
+  Overall RMSE  : 7.8290 kW
+  Overall R²    : 0.6811
+  Overall MAPE  : 659.63%
+  Overall WAPE  : 64.49%
+  Peak Zone MAE : 16.1417 kW
+  Peak Zone WAPE: 33.29%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.3135 kW
+  Overall RMSE  : 7.4917 kW
+  Overall R²    : 0.7081
+  Overall MAPE  : 665.30%
+  Overall WAPE  : 62.36%
+  Peak Zone MAE : 12.6762 kW
+  Peak Zone WAPE: 26.14%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.0968 kW
+  Overall RMSE  : 7.4198 kW
+  Overall R²    : 0.7136
+  Overall MAPE  : 598.84%
+  Overall WAPE  : 59.81%
+  Peak Zone MAE : 13.5708 kW
+  Peak Zone WAPE: 27.99%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 5.8514 kW
+  Overall RMSE  : 8.1398 kW
+  Overall R²    : 0.6496
+  Overall MAPE  : 607.94%
+  Overall WAPE  : 69.14%
+  Peak Zone MAE : 14.9071 kW
+  Peak Zone WAPE: 30.78%
+=================================================================================
+
+  [Checkpoint] New overall best model saved from SEED 789 (Val Loss: 0.003040) -> 00_tfm_custom_pytorch_best.pt
+Successfully saved SEED 789 results to 00_tfm_custom_pytorch_results.json (Runtime: 43.57s)
+
+=========================================================================
+RUNNING SEED 1024 (5/10)
+=========================================================================
+Early stopping triggered at epoch 50. Best Val Loss: 0.003129
+## SEED 1024
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.3562 kW
+  Overall RMSE  : 7.6825 kW
+  Overall R²    : 0.6929
+  Overall MAPE  : 652.07%
+  Overall WAPE  : 62.84%
+  Peak Zone MAE : 13.7747 kW
+  Peak Zone WAPE: 28.41%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.2792 kW
+  Overall RMSE  : 7.4879 kW
+  Overall R²    : 0.7083
+  Overall MAPE  : 593.31%
+  Overall WAPE  : 61.96%
+  Peak Zone MAE : 12.0043 kW
+  Peak Zone WAPE: 24.76%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.4061 kW
+  Overall RMSE  : 7.6139 kW
+  Overall R²    : 0.6984
+  Overall MAPE  : 591.84%
+  Overall WAPE  : 63.44%
+  Peak Zone MAE : 12.4912 kW
+  Peak Zone WAPE: 25.76%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 6.0251 kW
+  Overall RMSE  : 8.2025 kW
+  Overall R²    : 0.6442
+  Overall MAPE  : 687.44%
+  Overall WAPE  : 71.19%
+  Peak Zone MAE : 12.1690 kW
+  Peak Zone WAPE: 25.13%
+=================================================================================
+
+Successfully saved SEED 1024 results to 00_tfm_custom_pytorch_results.json (Runtime: 43.19s)
+
+=========================================================================
+RUNNING SEED 2024 (6/10)
+=========================================================================
+Early stopping triggered at epoch 44. Best Val Loss: 0.003041
+## SEED 2024
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.4809 kW
+  Overall RMSE  : 7.6988 kW
+  Overall R²    : 0.6916
+  Overall MAPE  : 658.06%
+  Overall WAPE  : 64.30%
+  Peak Zone MAE : 13.0814 kW
+  Peak Zone WAPE: 26.98%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.1674 kW
+  Overall RMSE  : 7.4613 kW
+  Overall R²    : 0.7104
+  Overall MAPE  : 599.74%
+  Overall WAPE  : 60.64%
+  Peak Zone MAE : 13.9403 kW
+  Peak Zone WAPE: 28.75%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.1875 kW
+  Overall RMSE  : 7.4455 kW
+  Overall R²    : 0.7116
+  Overall MAPE  : 613.39%
+  Overall WAPE  : 60.87%
+  Peak Zone MAE : 14.4034 kW
+  Peak Zone WAPE: 29.71%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 6.0247 kW
+  Overall RMSE  : 8.3513 kW
+  Overall R²    : 0.6312
+  Overall MAPE  : 667.60%
+  Overall WAPE  : 71.19%
+  Peak Zone MAE : 12.4740 kW
+  Peak Zone WAPE: 25.76%
+=================================================================================
+
+Successfully saved SEED 2024 results to 00_tfm_custom_pytorch_results.json (Runtime: 37.1s)
+
+=========================================================================
+RUNNING SEED 2025 (7/10)
+=========================================================================
+Early stopping triggered at epoch 37. Best Val Loss: 0.003111
+## SEED 2025
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.7146 kW
+  Overall RMSE  : 7.9021 kW
+  Overall R²    : 0.6751
+  Overall MAPE  : 777.59%
+  Overall WAPE  : 67.04%
+  Peak Zone MAE : 14.3109 kW
+  Peak Zone WAPE: 29.51%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.5930 kW
+  Overall RMSE  : 7.8063 kW
+  Overall R²    : 0.6830
+  Overall MAPE  : 701.22%
+  Overall WAPE  : 65.64%
+  Peak Zone MAE : 12.7351 kW
+  Peak Zone WAPE: 26.26%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.5221 kW
+  Overall RMSE  : 7.7582 kW
+  Overall R²    : 0.6869
+  Overall MAPE  : 672.81%
+  Overall WAPE  : 64.80%
+  Peak Zone MAE : 12.5398 kW
+  Peak Zone WAPE: 25.86%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 6.0776 kW
+  Overall RMSE  : 8.4635 kW
+  Overall R²    : 0.6212
+  Overall MAPE  : 632.27%
+  Overall WAPE  : 71.81%
+  Peak Zone MAE : 13.1626 kW
+  Peak Zone WAPE: 27.18%
+=================================================================================
+
+Successfully saved SEED 2025 results to 00_tfm_custom_pytorch_results.json (Runtime: 31.39s)
+
+=========================================================================
+RUNNING SEED 2026 (8/10)
+=========================================================================
+Early stopping triggered at epoch 52. Best Val Loss: 0.003107
+## SEED 2026
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.6892 kW
+  Overall RMSE  : 7.8782 kW
+  Overall R²    : 0.6771
+  Overall MAPE  : 716.09%
+  Overall WAPE  : 66.74%
+  Peak Zone MAE : 12.0582 kW
+  Peak Zone WAPE: 24.87%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.7761 kW
+  Overall RMSE  : 7.9711 kW
+  Overall R²    : 0.6695
+  Overall MAPE  : 729.51%
+  Overall WAPE  : 67.79%
+  Peak Zone MAE : 11.7364 kW
+  Peak Zone WAPE: 24.21%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.8351 kW
+  Overall RMSE  : 7.9409 kW
+  Overall R²    : 0.6719
+  Overall MAPE  : 735.72%
+  Overall WAPE  : 68.47%
+  Peak Zone MAE : 12.1234 kW
+  Peak Zone WAPE: 25.00%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 6.2785 kW
+  Overall RMSE  : 8.6752 kW
+  Overall R²    : 0.6020
+  Overall MAPE  : 728.92%
+  Overall WAPE  : 74.18%
+  Peak Zone MAE : 11.2828 kW
+  Peak Zone WAPE: 23.30%
+=================================================================================
+
+Successfully saved SEED 2026 results to 00_tfm_custom_pytorch_results.json (Runtime: 36.4s)
+
+=========================================================================
+RUNNING SEED 3407 (9/10)
+=========================================================================
+Early stopping triggered at epoch 43. Best Val Loss: 0.003038
+## SEED 3407
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.2240 kW
+  Overall RMSE  : 7.5477 kW
+  Overall R²    : 0.7036
+  Overall MAPE  : 614.04%
+  Overall WAPE  : 61.29%
+  Peak Zone MAE : 14.2709 kW
+  Peak Zone WAPE: 29.43%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.1109 kW
+  Overall RMSE  : 7.4179 kW
+  Overall R²    : 0.7138
+  Overall MAPE  : 585.14%
+  Overall WAPE  : 59.98%
+  Peak Zone MAE : 13.6116 kW
+  Peak Zone WAPE: 28.07%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.1836 kW
+  Overall RMSE  : 7.4824 kW
+  Overall R²    : 0.7087
+  Overall MAPE  : 586.62%
+  Overall WAPE  : 60.83%
+  Peak Zone MAE : 12.2533 kW
+  Peak Zone WAPE: 25.27%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 5.6420 kW
+  Overall RMSE  : 8.0706 kW
+  Overall R²    : 0.6555
+  Overall MAPE  : 597.94%
+  Overall WAPE  : 66.66%
+  Peak Zone MAE : 13.2376 kW
+  Peak Zone WAPE: 27.33%
+=================================================================================
+
+  [Checkpoint] New overall best model saved from SEED 3407 (Val Loss: 0.003038) -> 00_tfm_custom_pytorch_best.pt
+Successfully saved SEED 3407 results to 00_tfm_custom_pytorch_results.json (Runtime: 26.63s)
+
+=========================================================================
+RUNNING SEED 9999 (10/10)
+=========================================================================
+Early stopping triggered at epoch 46. Best Val Loss: 0.003231
+## SEED 9999
+================ MODEL EVALUATION METRICS (per horizon step) ================
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+-------------------------------------------------------------------------------
+
+[Step 0 (30 min)]
+  Overall MAE   : 5.4352 kW
+  Overall RMSE  : 7.7065 kW
+  Overall R²    : 0.6910
+  Overall MAPE  : 694.32%
+  Overall WAPE  : 63.76%
+  Peak Zone MAE : 14.6813 kW
+  Peak Zone WAPE: 30.28%
+
+[Step 5 (3 hr)]
+  Overall MAE   : 5.0969 kW
+  Overall RMSE  : 7.3412 kW
+  Overall R²    : 0.7197
+  Overall MAPE  : 593.96%
+  Overall WAPE  : 59.82%
+  Peak Zone MAE : 13.5054 kW
+  Peak Zone WAPE: 27.85%
+
+[Step 11 (6 hr)]
+  Overall MAE   : 5.2657 kW
+  Overall RMSE  : 7.4545 kW
+  Overall R²    : 0.7109
+  Overall MAPE  : 617.36%
+  Overall WAPE  : 61.79%
+  Peak Zone MAE : 11.9797 kW
+  Peak Zone WAPE: 24.71%
+
+[Step 47 (24 hr)]
+  Overall MAE   : 5.6979 kW
+  Overall RMSE  : 8.0467 kW
+  Overall R²    : 0.6576
+  Overall MAPE  : 611.02%
+  Overall WAPE  : 67.32%
+  Peak Zone MAE : 13.2422 kW
+  Peak Zone WAPE: 27.34%
+=================================================================================
+
+Successfully saved SEED 9999 results to 00_tfm_custom_pytorch_results.json (Runtime: 30.94s)
+Successfully saved all seed predictions to 00_tfm_custom_pytorch_predictions.npz
+
+======================================================================
+FINAL SUMMARY ACROSS 10 SEEDS — 00_tfm_custom_pytorch
+======================================================================
+  MAE                   : 5.5811 ± 0.1324
+  RMSE                  : 7.8832 ± 0.1215
+  R2                    : 0.6756 ± 0.0100
+  WAPE                  : 65.5436 ± 1.5549
+  MAPE                  : 652.7407 ± 28.1479
+  BIAS                  : 2.4366 ± 0.3508
+  NEGATIVE_PCT          : 1.1767 ± 0.4909
+  TRAINING_TIME_SECONDS : 38.1760 ± 6.7153
+  PEAK_GPU_MEMORY_MB    : 182.2800 ± 0.0000
+Successfully saved final results to 00_tfm_custom_pytorch_results.json
+
+Finished running all 10 SEEDs in PyTorch!
+
+==============================================================================
+Finished 00_tfm_custom_pytorch.py with exit code 0 (Elapsed: 389s) at Sat Sep  5 18:23:21 +07 2026
+==============================================================================
