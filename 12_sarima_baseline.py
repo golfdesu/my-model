@@ -231,14 +231,6 @@ with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
 print(f"Successfully saved SARIMA baseline results to {output_json_filename}")
 
-# Also save raw predictions for potential further analysis
-np.savez(
-    "00_sarima_baseline_predictions.npz",
-    y_pred=y_pred_all,
-    y_true=y_true_all,
-)
-print("Saved raw predictions to 00_sarima_baseline_predictions.npz")
-
 np.savez_compressed(
     f"12_sarima_baseline_predictions.npz",
     y_true=y_true_all.astype(np.float32),
