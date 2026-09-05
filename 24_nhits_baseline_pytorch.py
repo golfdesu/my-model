@@ -211,10 +211,8 @@ class NHiTSBlock(nn.Module):
         # Backcast projection: predicts reconstructed input sequence [B, L * num_features]
         self.backcast_proj = nn.Linear(hidden_dim, lookback * num_features)
 
-        # Forecast basis coefficients projection
+        # Forecast basis coefficients projection (n_theta knots)
         self.forecast_theta = nn.Linear(hidden_dim, n_theta)
-        # Hierarchical interpolation / synthesis to full horizon H
-        self.forecast_synth = nn.Linear(n_theta, horizon)
 
     def forward(self, x):
         # x: [B, L, num_features]
@@ -230,9 +228,14 @@ class NHiTSBlock(nn.Module):
         # Backcast reconstruction
         backcast = self.backcast_proj(h).reshape(B, L, D)  # [B, L, D]
 
-        # Forecast synthesis
+        # Forecast synthesis: Non-parametric hierarchical linear interpolation (Challu et al., AAAI 2023)
         theta_f = self.forecast_theta(h)  # [B, n_theta]
-        forecast = self.forecast_synth(theta_f)  # [B, horizon]
+        forecast = F.interpolate(
+            theta_f.unsqueeze(1),
+            size=self.horizon,
+            mode='linear',
+            align_corners=True
+        ).squeeze(1)  # [B, horizon]
 
         return backcast, forecast
 
