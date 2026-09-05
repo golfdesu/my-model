@@ -1,0 +1,78 @@
+==============================================================================
+Job ID           : 79202
+Node Allocated   : compute4
+Start Time       : 2026-09-04 20:36:10
+Python Executable: /home/690631079/project/my-model/.venv/bin/python
+PyTorch Version  : 2.13.0+cu130
+GPU Model        : NVIDIA H100 80GB HBM3
+==============================================================================
+
+>>> [1/4] Starting 01_tfm_tfm_pytorch.py (FP32/TF32 Baseline)...
+PyTorch Version: 2.13.0+cu130
+Using Device: cuda
+GPU Model: NVIDIA H100 80GB HBM3
+Dataset Loaded successfully from ../data_cleaned/acn_caltech_ready2.csv! Total Rows: 32435, Features Count: 27
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+Pre-building sequence tensors...
+Starting Automated 10-Seed Loop for 01_tfm_tfm_pytorch in PyTorch...
+
+=========================================================================
+RUNNING SEED 42 (1/10)
+=========================================================================
+Early stopping triggered at epoch 38. Best Val Loss: 0.003134
+>>> [1/4] Completed 01_tfm_tfm_pytorch.py (Elapsed: 24s)
+
+>>> [2/4] Starting 01_tfm_tfm_pytorch_bf16.py (BF16 Mixed Precision)...
+PyTorch Version: 2.13.0+cu130
+Using Device: cuda
+GPU Model: NVIDIA H100 80GB HBM3
+Dataset Loaded successfully from ../data_cleaned/acn_caltech_ready2.csv! Total Rows: 32435, Features Count: 27
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+Pre-building sequence tensors...
+Starting Automated 10-Seed Loop for 01_tfm_tfm_pytorch_bf16 in PyTorch...
+
+=========================================================================
+RUNNING SEED 42 (1/10)
+=========================================================================
+Early stopping triggered at epoch 43. Best Val Loss: 0.003084
+>>> [2/4] Completed 01_tfm_tfm_pytorch_bf16.py (Elapsed: 30s)
+
+>>> [3/4] Starting 02_tfm_ifm_pytorch.py (FP32/TF32 Baseline)...
+PyTorch Version: 2.13.0+cu130
+Using Device: cuda
+GPU Model: NVIDIA H100 80GB HBM3
+Dataset Loaded successfully from ../data_cleaned/acn_caltech_ready2.csv! Total Rows: 32435, Features Count: 27
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+Pre-building sequence tensors...
+Starting Automated 10-Seed Loop for 02_tfm_ifm_pytorch in PyTorch...
+
+=========================================================================
+RUNNING SEED 42 (1/10)
+=========================================================================
+Early stopping triggered at epoch 47. Best Val Loss: 0.003500
+>>> [3/4] Completed 02_tfm_ifm_pytorch.py (Elapsed: 171s)
+
+>>> [4/4] Starting 02_tfm_ifm_pytorch_bf16.py (BF16 Mixed Precision)...
+PyTorch Version: 2.13.0+cu130
+Using Device: cuda
+GPU Model: NVIDIA H100 80GB HBM3
+Dataset Loaded successfully from ../data_cleaned/acn_caltech_ready2.csv! Total Rows: 32435, Features Count: 27
+Peak Load Threshold (Top 20% of TRAIN): 34.7101 kW
+Pre-building sequence tensors...
+Starting Automated 10-Seed Loop for 02_tfm_ifm_pytorch_bf16 in PyTorch...
+
+=========================================================================
+RUNNING SEED 42 (1/10)
+=========================================================================
+Early stopping triggered at epoch 54. Best Val Loss: 0.003519
+>>> [4/4] Completed 02_tfm_ifm_pytorch_bf16.py (Elapsed: 228s)
+
+==============================================================================
+BENCHMARK SUMMARY (Total Execution Times):
+  01 Transformer (FP32) : 24 seconds
+  01 Transformer (BF16) : 30 seconds
+  02 Informer    (FP32) : 171 seconds
+  02 Informer    (BF16) : 228 seconds
+End Time              : 2026-09-04 20:43:48
+==============================================================================
+[INFO] All 4 models finished. Releasing GPU node now.
