@@ -1,0 +1,32 @@
+# 1. Ignore everything at root except whitelisted entries below
+/*
+!/**/
+
+# 2. Whitelist numbered experiment scripts and environment dependencies
+![0-9]*
+!**/[0-9]*
+!requirements.txt
+!*.sbatch
+!.gitignore
+!AGENTS.md
+!CLAUDE.md
+
+# 3. Keep ignoring duplicated "*_fix" copies of numbered scripts
+*[0-9]*fix
+*[0-9]*fix.*
+**/*[0-9]*fix
+**/*[0-9]*fix.*
+
+# 4. Python cache
+__pycache__/
+**/__pycache__/**
+*.py[cod]
+*$py.class
+
+.venv/
+**/.venv/**
+logs/
+**/logs/**
+*.pt
+*.npz
+*_results.json
