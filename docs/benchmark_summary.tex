@@ -1,0 +1,33 @@
+\begin{table*}[t]
+\centering
+\caption{Multi-seed benchmark results across architectures on Caltech ACN aggregate station load ($L=96, H=48$, 10 seeds). Mean and standard deviation are reported. Bold indicates best performance.}
+\label{tab:benchmark_results}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l c c c c c}
+\toprule
+\textbf{Model Architecture} & \textbf{Family} & \textbf{MAE (kWh)} $\downarrow$ & \textbf{RMSE (kWh)} $\downarrow$ & \textbf{WAPE (\%)} $\downarrow$ & \textbf{$R^2$} $\uparrow$ & \textbf{Parameters} \\
+\midrule
+07\_tfm\_itfm\_pytorch & Transformer & \textbf{$5.0937 \pm 0.1477$} & \textbf{$7.5109 \pm 0.1545$} & \textbf{$59.82 \pm 1.73$} & $0.7055$ & N/A \\
+18\_lightgbm\_baseline & Tree-based GBDT & $5.3865 \pm 0.0059$ & $8.1150 \pm 0.0070$ & $63.26 \pm 0.07$ & $0.6563$ & 48,000 \\
+04\_tfm\_ifm\_pytorch & Transformer & $5.3972 \pm 0.1241$ & $8.0262 \pm 0.1322$ & $63.38 \pm 1.46$ & $0.6637$ & 120,592 \\
+17\_xgboost\_baseline & Tree-based GBDT & $5.4623 \pm 0.0099$ & $8.1352 \pm 0.0087$ & $64.15 \pm 0.12$ & $0.6546$ & 48,000 \\
+01\_tfm\_enc\_pytorch & Transformer & $5.5415 \pm 0.0866$ & $7.9135 \pm 0.1106$ & $65.08 \pm 1.02$ & $0.6731$ & 180,336 \\
+00\_tfm\_custom\_pytorch & Custom Proposed & $5.5811 \pm 0.1324$ & $7.8832 \pm 0.1215$ & $65.54 \pm 1.55$ & $0.6756$ & 180,336 \\
+10\_gru\_baseline\_pytorch & Recurrent (RNN) & $5.5895 \pm 0.1014$ & $7.9918 \pm 0.1039$ & $65.64 \pm 1.19$ & $0.6666$ & 33,264 \\
+09\_lstm\_baseline\_pytorch & Recurrent (RNN) & $5.6338 \pm 0.0815$ & $8.0907 \pm 0.1488$ & $66.16 \pm 0.96$ & $0.6583$ & 37,488 \\
+15\_timemachine\_baseline\_pytorch & State Space Model & $5.6652 \pm 0.0910$ & $8.1436 \pm 0.0790$ & $66.53 \pm 1.07$ & $0.6539$ & 38,448 \\
+02\_tfm\_dec\_pytorch & Transformer & $5.7191 \pm 0.0914$ & $8.0587 \pm 0.0850$ & $67.16 \pm 1.07$ & $0.6610$ & 192,624 \\
+16\_s4d\_baseline\_pytorch & State Space Model & $5.7690 \pm 0.1409$ & $8.3191 \pm 0.1640$ & $67.75 \pm 1.65$ & $0.6387$ & 27,984 \\
+14\_powermamba\_baseline\_pytorch & State Space Model & $5.7845 \pm 0.1200$ & $8.2071 \pm 0.1632$ & $67.93 \pm 1.41$ & $0.6483$ & 45,360 \\
+13\_smamba\_baseline\_pytorch & State Space Model & $5.8187 \pm 0.1023$ & $8.2148 \pm 0.0850$ & $68.33 \pm 1.20$ & $0.6478$ & 362,480 \\
+05\_tfm\_afm\_pytorch & Transformer & $5.9289 \pm 0.1330$ & $8.6172 \pm 0.1860$ & $69.63 \pm 1.56$ & $0.6123$ & 926,978 \\
+03\_tfm\_encdec\_pytorch & Transformer & $5.9328 \pm 0.1112$ & $8.2210 \pm 0.1065$ & $69.67 \pm 1.31$ & $0.6472$ & 1,282,800 \\
+08\_tfm\_timesnet\_pytorch & CNN / 2D Temporal & $6.0995 \pm 0.1824$ & $8.8674 \pm 0.2681$ & $71.63 \pm 2.14$ & $0.5893$ & N/A \\
+12\_nlinear\_baseline\_pytorch & Linear & Decomp & $6.2466 \pm 0.0036$ & $10.4387 \pm 0.0011$ & $73.36 \pm 0.04$ & $0.4313$ & 4,656 \\
+11\_dlinear\_baseline\_pytorch & Linear & Decomp & $6.9832 \pm 0.0540$ & $10.4371 \pm 0.0227$ & $82.01 \pm 0.63$ & $0.4315$ & 9,312 \\
+06\_tfm\_ptst\_pytorch & Transformer & $7.2949 \pm 0.1759$ & $10.7911 \pm 0.2136$ & $85.67 \pm 2.07$ & $0.3921$ & 542,056 \\
+19\_sarima\_baseline & Statistical Baseline & $nan \pm nan$ & $nan \pm nan$ & $nan \pm nan$ & N/A & 4 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
