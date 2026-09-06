@@ -222,7 +222,7 @@ class NBEATS(nn.Module):
         lookback=96,
         num_features=30,
         horizon=48,
-        target_idx=29,
+        target_idx=-1,
         stack_types=None,
         n_layers=4,
         hidden_dim=256,
