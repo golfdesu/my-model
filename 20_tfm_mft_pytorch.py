@@ -325,7 +325,7 @@ class MultiVariableFusionModule(nn.Module):
         ext_features: [B, L, F]
         Returns E: [B, L, d_model]
         """
-        B, L, F = ext_features.shape
+        B, L, num_feats = ext_features.shape
 
         # 1. Load Query representation
         l_emb = self.load_q_proj(load_seq)                             # [B, L, d_model]
@@ -338,14 +338,14 @@ class MultiVariableFusionModule(nn.Module):
         feat_k_pooled = feat_k.mean(dim=2)                             # [B, F, d_model]
 
         # 3. Dynamic Attention Weights (Cross-attention between load query and feature keys)
-        scores = torch.bmm(l_q.unsqueeze(1), feat_k_pooled.transpose(1, 2)).squeeze(1) / math.sqrt(self.d_model) # [B, F]
-        sigma_w = F.softmax(scores, dim=-1)                            # [B, F]
+        scores = (feat_k_pooled * l_q.unsqueeze(1)).sum(dim=-1) / math.sqrt(self.d_model) # [B, num_feats]
+        sigma_w = F.softmax(scores, dim=-1)                            # [B, num_feats]
 
         # 4. Total Dynamic Weight = FAM base weight + MFM attention weight (Eq. 8)
-        if self.base_weights.shape[0] == F:
+        if self.base_weights.shape[0] == num_feats:
             base_w = self.base_weights
         else:
-            base_w = torch.ones(F, device=ext_features.device, dtype=ext_features.dtype) / max(F, 1)
+            base_w = torch.ones(num_feats, device=ext_features.device, dtype=ext_features.dtype) / max(num_feats, 1)
         w_tilde = base_w.unsqueeze(0) + sigma_w                        # [B, F]
 
         # 5. Weighted aggregation of external feature representations (Eq. 9)
