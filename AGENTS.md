@@ -180,6 +180,17 @@ This project implements **Google Research: WikiSkill** (*arXiv:2608.27454*) unde
 - **`preflight_check.py`**: Scans model scripts before launch to catch prohibited patterns.
 - **`validate_gating.py`**: Enforces rollback if any proposed modification degrades performance or breaks compliance.
 
+### 6.4 SKILL.state Mandatory Protocol for Paper & Code Audits
+Whenever an agent is tasked with **auditing, checking, or re-checking models against papers or code** (e.g. "ตรวจโค้ดกับเปเปอร์", "re-check paper alignment", "audit model X"):
+1. **ANTI-WASTE DIRECTIVE**: Do NOT perform ad-hoc exhaustive reading of raw `.py` files or dumping hundreds of lines of code/PDFs into context.
+2. **MANDATORY SKILL STATE ACTIVATION**:
+   - First, inspect `configs/paper_alignment_state.json` (and `configs/audit_state.json`) to read existing compliance status and known deviations with zero token waste.
+   - Run the programmatic audit engine:
+     `python ../hyperparameter_tuning/.agents/skills/paper-alignment-auditor/scripts/paper_audit_engine.py`
+3. **PERSISTENT STATE RECORDING**:
+   - Whenever an issue is discovered or remediated, immediately update `configs/paper_alignment_state.json` (`status`: `"ALIGNED"` | `"DEVIATED"`, with exact mechanism details).
+   - This ensures institutional memory is preserved so subsequent agents know model integrity instantly without re-auditing.
+
 ---
 
 ## 7. Agent Operational Directives & Safety Rules
