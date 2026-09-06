@@ -133,40 +133,38 @@ X_val_t,   y_val_t   = create_windowed_tensors(X_val_scaled,   y_val_scaled,   L
 X_test_t,  y_test_t  = create_windowed_tensors(X_test_scaled,  y_test_scaled,  LOOKBACK, HORIZON)
 
 # ---------------------------------------------------------
-# 3. Model Architecture: N-BEATS
+# 3. Model Architecture: N-BEATS (Oreshkin et al., ICLR 2020: ServiceNow)
 # ---------------------------------------------------------
 class NBeatsBlock(nn.Module):
+    """
+    N-BEATS Base Block with Doubly Residual Stacking (Oreshkin et al., ICLR 2020: ServiceNow)
+    Supports 'generic', 'trend', and 'seasonality' basis functions with 4 FC ReLU layers.
+    """
     def __init__(
         self,
         lookback=96,
-        num_features=30,
         horizon=48,
-        n_layers=3,
+        n_layers=4,
         hidden_dim=256,
         basis_type="generic",
         polynomial_degree=3,
-        num_harmonics=8,
-        dropout=0.1
+        num_harmonics=8
     ):
         super().__init__()
         self.lookback = lookback
-        self.num_features = num_features
         self.horizon = horizon
         self.basis_type = basis_type
 
-        input_dim = lookback * num_features
-
         layers = []
-        in_d = input_dim
+        in_d = lookback
         for _ in range(n_layers):
             layers.append(nn.Linear(in_d, hidden_dim))
-            layers.append(nn.GELU())
-            layers.append(nn.Dropout(dropout))
+            layers.append(nn.ReLU())
             in_d = hidden_dim
         self.mlp = nn.Sequential(*layers)
 
         if basis_type == "trend":
-            self.theta_b = nn.Linear(hidden_dim, (polynomial_degree + 1) * num_features)
+            self.theta_b = nn.Linear(hidden_dim, polynomial_degree + 1)
             self.theta_f = nn.Linear(hidden_dim, polynomial_degree + 1)
             t_b = torch.linspace(0, 1, lookback, dtype=torch.float32).unsqueeze(1)
             t_f = torch.linspace(0, 1, horizon,  dtype=torch.float32).unsqueeze(1)
@@ -176,7 +174,7 @@ class NBeatsBlock(nn.Module):
 
         elif basis_type == "seasonality":
             num_coefficients = 2 * num_harmonics
-            self.theta_b = nn.Linear(hidden_dim, num_coefficients * num_features)
+            self.theta_b = nn.Linear(hidden_dim, num_coefficients)
             self.theta_f = nn.Linear(hidden_dim, num_coefficients)
             t_b = 2.0 * math.pi * torch.linspace(0, 1, lookback, dtype=torch.float32).unsqueeze(1)
             t_f = 2.0 * math.pi * torch.linspace(0, 1, horizon,  dtype=torch.float32).unsqueeze(1)
@@ -187,51 +185,56 @@ class NBeatsBlock(nn.Module):
             self.register_buffer('basis_b', torch.cat([cos_b, sin_b], dim=1))
             self.register_buffer('basis_f', torch.cat([cos_f, sin_f], dim=1))
 
-        else:
-            self.backcast_proj = nn.Linear(hidden_dim, lookback * num_features)
+        else:  # Generic linear basis
+            self.backcast_proj = nn.Linear(hidden_dim, lookback)
             self.forecast_proj = nn.Linear(hidden_dim, horizon)
 
     def forward(self, x):
-        B, L, D = x.shape
-        x_flat = x.reshape(B, -1)
-        h = self.mlp(x_flat)
+        # x: [B, L]
+        h = self.mlp(x)
 
         if self.basis_type == "trend":
-            theta_b = self.theta_b(h).reshape(B, D, -1)
-            backcast = torch.einsum('b d p, l p -> b l d', theta_b, self.basis_b)
+            theta_b = self.theta_b(h)
+            backcast = torch.einsum('b p, l p -> b l', theta_b, self.basis_b)
             theta_f = self.theta_f(h)
             forecast = torch.einsum('b p, h p -> b h', theta_f, self.basis_f)
 
         elif self.basis_type == "seasonality":
-            theta_b = self.theta_b(h).reshape(B, D, -1)
-            backcast = torch.einsum('b d k, l k -> b l d', theta_b, self.basis_b)
+            theta_b = self.theta_b(h)
+            backcast = torch.einsum('b k, l k -> b l', theta_b, self.basis_b)
             theta_f = self.theta_f(h)
             forecast = torch.einsum('b k, h k -> b h', theta_f, self.basis_f)
 
-        else:
-            backcast = self.backcast_proj(h).reshape(B, L, D)
+        else:  # Generic
+            backcast = self.backcast_proj(h)
             forecast = self.forecast_proj(h)
 
         return backcast, forecast
 
 
 class NBEATS(nn.Module):
+    """
+    N-BEATS Architecture with Doubly Residual Stacking (Oreshkin et al., ICLR 2020: ServiceNow)
+    Operates directly on the target series to preserve physical interpretability of Trend & Seasonality.
+    """
     def __init__(
         self,
         lookback=96,
         num_features=30,
         horizon=48,
+        target_idx=29,
         stack_types=None,
-        n_layers=3,
+        n_layers=4,
         hidden_dim=256,
         polynomial_degree=3,
         num_harmonics=8,
-        dropout=0.1
+        dropout=0.0
     ):
         super().__init__()
         self.lookback = lookback
         self.num_features = num_features
         self.horizon = horizon
+        self.target_idx = target_idx
 
         if stack_types is None:
             stack_types = ["trend", "seasonality", "generic", "generic"]
@@ -241,20 +244,23 @@ class NBEATS(nn.Module):
             self.blocks.append(
                 NBeatsBlock(
                     lookback=lookback,
-                    num_features=num_features,
                     horizon=horizon,
                     n_layers=n_layers,
                     hidden_dim=hidden_dim,
                     basis_type=b_type,
                     polynomial_degree=polynomial_degree,
-                    num_harmonics=num_harmonics,
-                    dropout=dropout
+                    num_harmonics=num_harmonics
                 )
             )
 
     def forward(self, x):
-        residual = x
-        total_forecast = torch.zeros(x.size(0), self.horizon, device=x.device)
+        # Isolate past target series to preserve canonical univariate interpretability
+        if x.dim() == 3:
+            residual = x[:, :, self.target_idx]
+        else:
+            residual = x
+
+        total_forecast = torch.zeros(residual.size(0), self.horizon, device=residual.device)
 
         for block in self.blocks:
             backcast, forecast = block(residual)
@@ -332,12 +338,13 @@ CONFIG = {
     "lookback": LOOKBACK,
     "num_features": num_total_features,
     "horizon": HORIZON,
+    "target_idx": TARGET_CH_IDX,
     "stack_types": ["trend", "seasonality", "generic", "generic"],
-    "n_layers": 3,
+    "n_layers": 4,
     "hidden_dim": 256,
     "polynomial_degree": 3,
     "num_harmonics": 8,
-    "dropout": 0.10,
+    "dropout": 0.0,
     "learning_rate": 0.0005,
     "weight_decay": 1e-5,
     "batch_size": 128,
@@ -373,6 +380,7 @@ def run_seed(seed):
         lookback=CONFIG["lookback"],
         num_features=CONFIG["num_features"],
         horizon=CONFIG["horizon"],
+        target_idx=CONFIG["target_idx"],
         stack_types=CONFIG["stack_types"],
         n_layers=CONFIG["n_layers"],
         hidden_dim=CONFIG["hidden_dim"],

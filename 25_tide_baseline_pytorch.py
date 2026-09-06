@@ -183,13 +183,11 @@ class TiDE(nn.Module):
             in_d = d_hidden
         self.encoder = nn.Sequential(*enc_layers)
 
-        decoder_output_dim = horizon * d_dec
         dec_layers = []
-        in_d = d_hidden
         for _ in range(num_decoder_layers):
-            dec_layers.append(ResBlock(in_d, decoder_output_dim, d_hidden, dropout=dropout))
-            in_d = decoder_output_dim
+            dec_layers.append(ResBlock(d_hidden, d_hidden, d_hidden, dropout=dropout))
         self.decoder = nn.Sequential(*dec_layers)
+        self.decoder_proj = nn.Linear(d_hidden, horizon * d_dec)
         self.d_dec = d_dec
 
         self.temporal_head = ResBlock(d_dec, 1, d_dec, dropout=dropout)
@@ -206,7 +204,8 @@ class TiDE(nn.Module):
         flat_input = combined.reshape(B, -1)
 
         e = self.encoder(flat_input)
-        g = self.decoder(e)
+        d = self.decoder(e)
+        g = self.decoder_proj(d)
         g = g.reshape(B, self.horizon, self.d_dec)
 
         dense_out = self.temporal_head(g).squeeze(-1)

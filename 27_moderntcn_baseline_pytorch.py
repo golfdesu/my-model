@@ -132,73 +132,190 @@ X_val_t,   y_val_t   = create_windowed_tensors(X_val_scaled,   y_val_scaled,   L
 X_test_t,  y_test_t  = create_windowed_tensors(X_test_scaled,  y_test_scaled,  LOOKBACK, HORIZON)
 
 # ---------------------------------------------------------
-# 3. Model Architecture: ModernTCN
+# 3. Model Architecture: ModernTCN (Dong et al., ICLR 2024 Spotlight)
 # ---------------------------------------------------------
-class ModernTCNBlock(nn.Module):
-    def __init__(self, d_model, kernel_size=25, ffn_mult=2, dropout=0.1):
+class RevIN(nn.Module):
+    """
+    Reversible Instance Normalization (Kim et al., ICLR 2022)
+    """
+    def __init__(self, num_features: int, eps=1e-5, affine=True):
         super().__init__()
-        self.dw_conv = nn.Conv1d(
-            in_channels=d_model,
-            out_channels=d_model,
+        self.num_features = num_features
+        self.eps = eps
+        self.affine = affine
+        if self.affine:
+            self.affine_weight = nn.Parameter(torch.ones(num_features))
+            self.affine_bias = nn.Parameter(torch.zeros(num_features))
+
+    def forward(self, x, mode: str):
+        if mode == 'norm':
+            self.mean = torch.mean(x, dim=1, keepdim=True).detach()
+            self.stdev = torch.sqrt(torch.var(x, dim=1, keepdim=True, unbiased=False) + self.eps).detach()
+            x = x - self.mean
+            x = x / self.stdev
+            if self.affine:
+                x = x * self.affine_weight + self.affine_bias
+            return x
+        elif mode == 'denorm':
+            if self.affine:
+                x = (x - self.affine_bias) / (self.affine_weight + self.eps * self.eps)
+            x = x * self.stdev
+            x = x + self.mean
+            return x
+
+
+class ModernTCNBlock(nn.Module):
+    """
+    Authentic ModernTCN Block (Dong et al., ICLR 2024 Spotlight: luodhhh/ModernTCN)
+    - Large-kernel Depthwise Conv across patch dimension N
+    - Decoupled ConvFFN1 (within variables / cross-feature)
+    - Decoupled ConvFFN2 (across variables / cross-channel)
+    """
+    def __init__(self, n_vars, d_model, kernel_size=25, ffn_ratio=2, dropout=0.1):
+        super().__init__()
+        self.n_vars = n_vars
+        self.d_model = d_model
+
+        # 1. Large-kernel Depthwise Conv along patch axis N
+        self.dw = nn.Conv1d(
+            in_channels=n_vars * d_model,
+            out_channels=n_vars * d_model,
             kernel_size=kernel_size,
+            stride=1,
             padding=kernel_size // 2,
-            groups=d_model
+            groups=n_vars * d_model
         )
         self.norm = nn.BatchNorm1d(d_model)
 
-        d_ff = d_model * ffn_mult
-        self.ffn = nn.Sequential(
-            nn.Conv1d(d_model, d_ff, kernel_size=1),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(d_ff, d_model, kernel_size=1),
-            nn.Dropout(dropout)
-        )
+        d_ff = d_model * ffn_ratio
+        # 2. Decoupled ConvFFN1 (within variables / cross-feature)
+        self.ffn1pw1 = nn.Conv1d(n_vars * d_model, n_vars * d_ff, kernel_size=1, groups=n_vars)
+        self.ffn1act = nn.GELU()
+        self.ffn1pw2 = nn.Conv1d(n_vars * d_ff, n_vars * d_model, kernel_size=1, groups=n_vars)
+        self.ffn1drop1 = nn.Dropout(dropout)
+        self.ffn1drop2 = nn.Dropout(dropout)
+
+        # 3. Decoupled ConvFFN2 (across variables / cross-channel)
+        self.ffn2pw1 = nn.Conv1d(n_vars * d_model, n_vars * d_ff, kernel_size=1, groups=d_model)
+        self.ffn2act = nn.GELU()
+        self.ffn2pw2 = nn.Conv1d(n_vars * d_ff, n_vars * d_model, kernel_size=1, groups=d_model)
+        self.ffn2drop1 = nn.Dropout(dropout)
+        self.ffn2drop2 = nn.Dropout(dropout)
 
     def forward(self, x):
+        # x: [B, M, D, N]
         res = x
-        out = self.norm(self.dw_conv(x))
-        out = self.ffn(out)
-        return res + out
+        B, M, D, N = x.shape
+
+        # Large-kernel DWConv
+        x = x.reshape(B, M * D, N)
+        x = self.dw(x)
+
+        # Normalization over feature dimension D
+        x = x.reshape(B * M, D, N)
+        x = self.norm(x)
+        x = x.reshape(B, M * D, N)
+
+        # Decoupled ConvFFN1 (within variable)
+        x = self.ffn1drop1(self.ffn1pw1(x))
+        x = self.ffn1act(x)
+        x = self.ffn1drop2(self.ffn1pw2(x))
+        x = x.reshape(B, M, D, N)
+
+        # Decoupled ConvFFN2 (across variables)
+        x = x.permute(0, 2, 1, 3) # [B, D, M, N]
+        x = x.reshape(B, D * M, N)
+        x = self.ffn2drop1(self.ffn2pw1(x))
+        x = self.ffn2act(x)
+        x = self.ffn2drop2(self.ffn2pw2(x))
+        x = x.reshape(B, D, M, N)
+        x = x.permute(0, 2, 1, 3) # [B, M, D, N]
+
+        return res + x
 
 
 class ModernTCN(nn.Module):
+    """
+    ModernTCN Architecture for General Time Series Forecasting (Dong et al., ICLR 2024 Spotlight)
+    """
     def __init__(
         self,
         lookback=96,
         num_features=30,
         horizon=48,
-        d_model=128,
+        target_idx=29,
+        patch_size=8,
+        patch_stride=4,
+        d_model=64,
         kernel_size=25,
-        num_layers=3,
-        ffn_mult=2,
+        num_layers=2,
+        ffn_ratio=2,
         dropout=0.1
     ):
         super().__init__()
         self.lookback = lookback
+        self.num_features = num_features
         self.horizon = horizon
+        self.target_idx = target_idx
+        self.patch_size = patch_size
+        self.patch_stride = patch_stride
 
-        self.in_proj = nn.Linear(num_features, d_model)
+        # 1. Reversible Instance Normalization
+        self.revin = RevIN(num_features, affine=True)
 
+        # 2. Patching Stem: Conv1d(1, d_model) per variable
+        self.stem = nn.Sequential(
+            nn.Conv1d(1, d_model, kernel_size=patch_size, stride=patch_stride),
+            nn.BatchNorm1d(d_model)
+        )
+        self.patch_num = (lookback - patch_size) // patch_stride + 1
+
+        # 3. Stacked ModernTCN Blocks
         self.blocks = nn.ModuleList([
-            ModernTCNBlock(d_model=d_model, kernel_size=kernel_size, ffn_mult=ffn_mult, dropout=dropout)
+            ModernTCNBlock(
+                n_vars=num_features,
+                d_model=d_model,
+                kernel_size=kernel_size,
+                ffn_ratio=ffn_ratio,
+                dropout=dropout
+            )
             for _ in range(num_layers)
         ])
 
-        self.head_time = nn.Linear(lookback, horizon)
-        self.head_feat = nn.Linear(d_model, 1)
+        # 4. Readout Head on target variable
+        self.head = nn.Sequential(
+            nn.Flatten(start_dim=-2),
+            nn.Linear(d_model * self.patch_num, horizon),
+            nn.Dropout(dropout)
+        )
 
     def forward(self, x):
-        h = self.in_proj(x)
-        h = h.transpose(1, 2)
+        # x: [B, L, M]
+        # 1. RevIN normalization
+        x = self.revin(x, 'norm')
 
+        B, L, M = x.shape
+        # 2. Patching Stem
+        x_in = x.transpose(1, 2).reshape(B * M, 1, L)
+        tokens = self.stem(x_in)
+        tokens = tokens.reshape(B, M, -1, self.patch_num) # [B, M, d_model, N]
+
+        # 3. ModernTCN Blocks
+        h = tokens
         for block in self.blocks:
             h = block(h)
 
-        h = self.head_time(h)
-        h = h.transpose(1, 2)
+        # 4. Target variable readout
+        h_target = h[:, self.target_idx, :, :]
+        out = self.head(h_target)
 
-        out = self.head_feat(h).squeeze(-1)
+        # 5. RevIN de-normalization on target variable
+        target_mean = self.revin.mean[:, :, self.target_idx]
+        target_stdev = self.revin.stdev[:, :, self.target_idx]
+        if self.revin.affine:
+            out = (out - self.revin.affine_bias[self.target_idx]) / (self.revin.affine_weight[self.target_idx] + 1e-5)
+        out = out * target_stdev + target_mean
+
         return out
 
 ModernTCNModel = ModernTCN
@@ -270,10 +387,13 @@ CONFIG = {
     "lookback": LOOKBACK,
     "num_features": num_total_features,
     "horizon": HORIZON,
-    "d_model": 128,
+    "target_idx": TARGET_CH_IDX,
+    "patch_size": 8,
+    "patch_stride": 4,
+    "d_model": 64,
     "kernel_size": 25,
-    "num_layers": 3,
-    "ffn_mult": 2,
+    "num_layers": 2,
+    "ffn_ratio": 2,
     "dropout": 0.10,
     "learning_rate": 0.0005,
     "weight_decay": 1e-5,
@@ -310,10 +430,13 @@ def run_seed(seed):
         lookback=CONFIG["lookback"],
         num_features=CONFIG["num_features"],
         horizon=CONFIG["horizon"],
+        target_idx=CONFIG["target_idx"],
+        patch_size=CONFIG["patch_size"],
+        patch_stride=CONFIG["patch_stride"],
         d_model=CONFIG["d_model"],
         kernel_size=CONFIG["kernel_size"],
         num_layers=CONFIG["num_layers"],
-        ffn_mult=CONFIG["ffn_mult"],
+        ffn_ratio=CONFIG["ffn_ratio"],
         dropout=CONFIG["dropout"]
     ).to(device)
 

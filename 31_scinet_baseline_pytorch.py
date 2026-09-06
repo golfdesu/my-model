@@ -154,24 +154,46 @@ class SCIBlock(nn.Module):
         super().__init__()
         self.phi = ConvBlock(d_model, kernel_size, dropout)
         self.psi = ConvBlock(d_model, kernel_size, dropout)
-        self.rho = ConvBlock(d_model, kernel_size, dropout)
-        self.eta = ConvBlock(d_model, kernel_size, dropout)
+        self.U   = ConvBlock(d_model, kernel_size, dropout)
+        self.P   = ConvBlock(d_model, kernel_size, dropout)
 
     def forward(self, x):
         x_even = x[:, :, 0::2]
         x_odd  = x[:, :, 1::2]
 
-        s_odd = torch.exp(self.phi(x_odd))
-        x_even_new = x_even * s_odd + self.psi(x_odd)
+        d = x_odd * torch.exp(self.phi(x_even))
+        c = x_even * torch.exp(self.psi(x_odd))
 
-        s_even = torch.exp(self.rho(x_even_new))
-        x_odd_new = x_odd * s_even - self.eta(x_even_new)
+        x_even_new = c + self.U(d)
+        x_odd_new  = d - self.P(c)
 
-        B, C, L_half = x_even_new.shape
-        out = torch.empty_like(x)
-        out[:, :, 0::2] = x_even_new
-        out[:, :, 1::2] = x_odd_new
-        return x + out
+        return x_even_new, x_odd_new
+
+
+class SCINetTree(nn.Module):
+    """
+    Recursive Binary Tree Downsample-Convolve-Interact (cure-lab/SCINet)
+    """
+    def __init__(self, d_model, current_level, kernel_size=3, dropout=0.1):
+        super().__init__()
+        self.current_level = current_level
+        self.interact = SCIBlock(d_model, kernel_size, dropout)
+        if current_level > 0:
+            self.tree_even = SCINetTree(d_model, current_level - 1, kernel_size, dropout)
+            self.tree_odd  = SCINetTree(d_model, current_level - 1, kernel_size, dropout)
+
+    def zip_halves(self, even, odd):
+        out = torch.empty(even.shape[0], even.shape[1], even.shape[2] + odd.shape[2], device=even.device)
+        out[:, :, 0::2] = even
+        out[:, :, 1::2] = odd
+        return out
+
+    def forward(self, x):
+        x_even_new, x_odd_new = self.interact(x)
+        if self.current_level == 0:
+            return self.zip_halves(x_even_new, x_odd_new)
+        else:
+            return self.zip_halves(self.tree_even(x_even_new), self.tree_odd(x_odd_new))
 
 
 class SCINet(nn.Module):
@@ -190,11 +212,7 @@ class SCINet(nn.Module):
         self.horizon = horizon
 
         self.in_proj = nn.Linear(num_features, d_model)
-
-        self.blocks = nn.ModuleList([
-            SCIBlock(d_model=d_model, kernel_size=kernel_size, dropout=dropout)
-            for _ in range(num_levels)
-        ])
+        self.tree = SCINetTree(d_model, current_level=num_levels - 1, kernel_size=kernel_size, dropout=dropout)
 
         self.head_time = nn.Linear(lookback, horizon)
         self.head_feat = nn.Linear(d_model, 1)
@@ -203,8 +221,7 @@ class SCINet(nn.Module):
         h = self.in_proj(x)
         h = h.transpose(1, 2)
 
-        for block in self.blocks:
-            h = block(h)
+        h = self.tree(h)
 
         h = self.head_time(h)
         h = h.transpose(1, 2)
