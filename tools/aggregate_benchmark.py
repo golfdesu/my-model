@@ -61,7 +61,12 @@ FAMILY_MAP = {
     "23_tcn": ("CNN / 2D Temporal", "#2ca02c"),
     "24_nhits": ("Basis Expansion", "#17becf"),
     "25_tide": ("Linear / Dense MLP", "#9467bd"),
-    "26_nbeats": ("Basis Expansion", "#17becf")
+    "26_nbeats": ("Basis Expansion", "#17becf"),
+    "27_moderntcn": ("CNN (ModernTCN)", "#2ca02c"),
+    "28_crossformer": ("Transformer (Crossformer)", "#ff7f0e"),
+    "29_segrnn": ("Recurrent (SegRNN)", "#d62728"),
+    "30_nstransformer": ("Transformer (NS-Tfm)", "#ff7f0e"),
+    "31_scinet": ("Convolutional (SCINet)", "#2ca02c")
 }
 
 def get_family_info(model_name):
