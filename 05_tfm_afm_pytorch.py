@@ -119,7 +119,6 @@ class PositionalEmbedding(nn.Module):
         positions = torch.arange(0, x.size(1), device=x.device)
         return x + self.pos_emb(positions)
 
-# Helper: PyTorch Gaussian Noise Layer
 # Helper: Metrics Evaluator Function
 def compute_metrics(actual, predicted, peak_threshold):
     mae = mean_absolute_error(actual, predicted)

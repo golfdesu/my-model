@@ -119,7 +119,6 @@ class PositionalEmbedding(nn.Module):
         positions = torch.arange(0, x.size(1), device=x.device)
         return x + self.pos_emb(positions)
 
-# Helper: PyTorch Gaussian Noise Layer
 # Helper: Metrics Evaluator Function
 def compute_metrics(actual, predicted, peak_threshold):
     mae = mean_absolute_error(actual, predicted)
@@ -144,7 +143,7 @@ def compute_metrics(actual, predicted, peak_threshold):
 
 # Helper: Decoder-Only Architecture PyTorch Module
 class DecoderOnlyTransformer(nn.Module):
-    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2, dropout_rate=0.1, noise_stddev=0.01):
+    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2, dropout_rate=0.1):
         super().__init__()
         self.proj = nn.Linear(num_features, d_model)
         self.pos_emb = PositionalEmbedding(lookback, d_model)

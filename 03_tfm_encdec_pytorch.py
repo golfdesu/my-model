@@ -144,10 +144,11 @@ def compute_metrics(actual, predicted, peak_threshold):
 
 # Helper: Encoder-Decoder Architecture PyTorch Module
 class EncoderDecoderTransformer(nn.Module):
-    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2, dropout_rate=0.1, noise_stddev=0.01):
+    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2, dropout_rate=0.1):
         super().__init__()
         self.lookback = lookback
         self.horizon = horizon
+        self.d_model = d_model
 
         # Encoder
         self.enc_proj = nn.Linear(num_features, d_model)
@@ -173,12 +174,8 @@ class EncoderDecoderTransformer(nn.Module):
         ])
         self.norm3_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
 
-        # Head
-        self.head_fc1 = nn.Linear(d_model * horizon, 128)
-        self.head_drop1 = nn.Dropout(dropout_rate)
-        self.head_fc2 = nn.Linear(128, 64)
-        self.head_drop2 = nn.Dropout(dropout_rate)
-        self.out_proj = nn.Linear(64, horizon)
+        # Canonical token-wise linear projection head (Linear(d_model, 1))
+        self.out_head = nn.Linear(d_model, 1)
 
     def forward(self, x):
         # x: [batch, lookback, num_features]
@@ -188,9 +185,9 @@ class EncoderDecoderTransformer(nn.Module):
         enc_in = self.drop_enc(self.pos_emb_enc(self.enc_proj(x)))
         enc_out = self.encoder(enc_in)
 
-        # Decoder initial context (repeat last encoder representation across horizon steps)
-        dec_start_token = enc_out[:, -1, :].unsqueeze(1).repeat(1, self.horizon, 1)
-        dec = self.drop_dec(self.pos_emb_dec(dec_start_token))
+        # Decoder initial context (zero placeholder query tokens for forecast horizon)
+        dec_in = torch.zeros(batch_size, self.horizon, self.d_model, device=x.device)
+        dec = self.drop_dec(self.pos_emb_dec(dec_in))
 
         causal_mask = torch.triu(torch.full((self.horizon, self.horizon), float('-inf'), device=x.device), diagonal=1)
 
@@ -204,12 +201,7 @@ class EncoderDecoderTransformer(nn.Module):
             ffn_out = self.ffn_dec[i](dec)
             dec = self.norm3_dec[i](dec + ffn_out)
 
-        dec_flat = dec.reshape(batch_size, -1)
-        h = F.relu(self.head_fc1(dec_flat))
-        h = self.head_drop1(h)
-        h = F.relu(self.head_fc2(h))
-        h = self.head_drop2(h)
-        out = self.out_proj(h)
+        out = self.out_head(dec).squeeze(-1)
         return out
 
 import time

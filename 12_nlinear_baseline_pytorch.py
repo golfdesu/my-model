@@ -10,7 +10,8 @@ import json
 # This directly addresses distribution shift / non-stationarity.
 # Our dataset has pronounced non-stationarity (mean drifts ~61% over 22 months).
 # Compare with 09_dlinear: NLinear should outperform DLinear on this non-stationary series.
-# Uses UNIVARIATE input only (target history), matching original paper design.
+# Uses Multivariate Channel Independence (individual=False) across all C=28 variates
+# (27 exogenous features + target load series at TARGET_CH_IDX=27), matching Zeng et al. (AAAI 2023).
 
 import sys
 import os
@@ -66,22 +67,44 @@ df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
 df = df.sort_index()  # safety: enforce chronological order before time-based split
+df = df.drop(columns=['prcp', 'tempDiff_48', 'cldc'], errors='ignore')
 
-# Univariate only: target history alone as input (matching original NLinear/DLinear paper design)
-y = df['kWhDelivered'].astype('float32')
-print(f"Dataset Loaded from {data_path}! Total Rows: {len(df)}")
+cols = [c for c in df.columns if c != 'kWhDelivered']
+for col in df.columns:
+    df[col] = df[col].astype('float32')
+
+X = df[cols]
+y = df['kWhDelivered']
+print(f"Dataset Loaded from {data_path}! Total Rows: {len(df)}, Features: {len(cols)}")
 
 train_len = int(len(df) * 0.6)
 val_len   = int(len(df) * 0.2)
+
+X_train = X[:train_len]
+X_val   = X[train_len : train_len + val_len]
+X_test  = X[train_len + val_len :]
 
 y_train = y[:train_len]
 y_val   = y[train_len : train_len + val_len]
 y_test  = y[train_len + val_len :]
 
+scaler_X = MinMaxScaler()
+X_train_scaled = scaler_X.fit_transform(X_train)
+X_val_scaled   = scaler_X.transform(X_val)
+X_test_scaled  = scaler_X.transform(X_test)
+
 scaler_y = MinMaxScaler()
 y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).flatten()
 y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1, 1)).flatten()
 y_test_scaled  = scaler_y.transform(y_test.values.reshape(-1, 1)).flatten()
+
+# NLinear multivariate (Zeng et al., AAAI 2023): channel-independent (individual=False)
+# Every input channel forecasts its own future with shared weights; target channel is read at TARGET_CH_IDX.
+TARGET_CH_IDX = X_train_scaled.shape[1]  # 27
+X_train_scaled = np.concatenate([X_train_scaled, y_train_scaled.reshape(-1, 1)], axis=1)
+X_val_scaled   = np.concatenate([X_val_scaled,   y_val_scaled.reshape(-1, 1)], axis=1)
+X_test_scaled  = np.concatenate([X_test_scaled,  y_test_scaled.reshape(-1, 1)], axis=1)
+print(f"Target variate appended at index {TARGET_CH_IDX} (total variates: {X_train_scaled.shape[1]})")
 
 peak_threshold_kw = float(np.percentile(y_train, 80))
 print(f"Peak Load Threshold (Top 20% of TRAIN): {peak_threshold_kw:.4f} kW")
@@ -89,12 +112,12 @@ print(f"Peak Load Threshold (Top 20% of TRAIN): {peak_threshold_kw:.4f} kW")
 # ---------------------------------------------------------
 # 2. Helpers
 # ---------------------------------------------------------
-def create_windowed_tensors_univariate(y_data, lookback, horizon):
+def create_windowed_tensors(X_data, y_data, lookback, horizon):
     X_seq, y_seq = [], []
-    for i in range(len(y_data) - lookback - horizon + 1):
-        X_seq.append(y_data[i : i + lookback])
+    for i in range(len(X_data) - lookback - horizon + 1):
+        X_seq.append(X_data[i : i + lookback])
         y_seq.append(y_data[i + lookback : i + lookback + horizon])
-    X_t = torch.tensor(np.array(X_seq, dtype=np.float32))  # [N, lookback]
+    X_t = torch.tensor(np.array(X_seq, dtype=np.float32))  # [N, lookback, C]
     y_t = torch.tensor(np.array(y_seq, dtype=np.float32))  # [N, horizon]
     return X_t, y_t, np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32)
 
@@ -124,27 +147,44 @@ class NLinear(nn.Module):
     """
     NLinear (Zeng et al., AAAI 2023)
     Normalize-then-Linear: instance normalization by subtracting the last timestep value.
+    Channel-Independent (individual=False) with shared weights across all channels.
 
     Algorithm:
-        last  = x[:, -1:]           # last observed value (distribution anchor)
-        x_norm = x - last           # subtract to remove local distribution shift
-        out   = Linear(x_norm)      # linear mapping of normalized sequence
-        out   = out + last          # add back baseline (denormalize)
-
-    This simple trick directly handles non-stationarity by operating on the
-    difference from the most recent observation rather than on the raw level.
+        last  = x[:, -1:, :]         # last observed value per channel
+        x_norm = x - last             # subtract to remove local distribution shift
+        out   = Linear(x_norm)        # linear mapping of normalized sequence
+        out   = out + last            # add back baseline (denormalize)
     """
-    def __init__(self, lookback, horizon):
+    def __init__(self, lookback, horizon, individual=False, num_features=28, target_idx=27):
         super().__init__()
-        self.linear = nn.Linear(lookback, horizon)
+        self.lookback = lookback
+        self.horizon = horizon
+        self.individual = individual
+        self.num_features = num_features
+        self.target_idx = target_idx
+
+        if self.individual:
+            self.linear = nn.ModuleList([nn.Linear(lookback, horizon) for _ in range(num_features)])
+        else:
+            self.linear = nn.Linear(lookback, horizon)
 
     def forward(self, x):
-        # x: [batch, lookback]  (univariate)
-        last   = x[:, -1:]          # [batch, 1] — last observed value
-        x_norm = x - last           # [batch, lookback] — remove distribution shift
-        out    = self.linear(x_norm) # [batch, horizon]
-        out    = out + last          # [batch, horizon] — add back baseline
-        return out
+        # x: [batch, lookback, channels]
+        seq_last = x[:, -1:, :].detach()  # [batch, 1, channels]
+        x_norm = x - seq_last             # [batch, lookback, channels]
+        x_perm = x_norm.permute(0, 2, 1)  # [batch, channels, lookback]
+
+        if self.individual:
+            out = torch.zeros(x.size(0), self.num_features, self.horizon, device=x.device, dtype=x.dtype)
+            for i in range(self.num_features):
+                out[:, i, :] = self.linear[i](x_perm[:, i, :])
+        else:
+            out = self.linear(x_perm)     # [batch, channels, horizon]
+
+        out = out.permute(0, 2, 1)        # [batch, horizon, channels]
+        out = out + seq_last             # [batch, horizon, channels]
+        target_ch = self.target_idx if x.size(-1) > 1 else 0
+        return out[:, :, target_ch]      # [batch, horizon]
 
 # ---------------------------------------------------------
 # 4. Config & Tensor Pre-build
@@ -164,10 +204,10 @@ results_data = {
 steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
-print("Pre-building univariate sequence tensors...")
-X_train_t, y_train_t, _, _ = create_windowed_tensors_univariate(y_train_scaled, LOOKBACK, HORIZON)
-X_val_t,   y_val_t,   _, _ = create_windowed_tensors_univariate(y_val_scaled,   LOOKBACK, HORIZON)
-X_test_t,  y_test_t,  X_test_seq, y_test_seq = create_windowed_tensors_univariate(y_test_scaled, LOOKBACK, HORIZON)
+print("Pre-building sequence tensors (multivariate C=28)...")
+X_train_t, y_train_t, _, _ = create_windowed_tensors(X_train_scaled, y_train_scaled, LOOKBACK, HORIZON)
+X_val_t,   y_val_t,   _, _ = create_windowed_tensors(X_val_scaled,   y_val_scaled,   LOOKBACK, HORIZON)
+X_test_t,  y_test_t,  X_test_seq, y_test_seq = create_windowed_tensors(X_test_scaled, y_test_scaled, LOOKBACK, HORIZON)
 
 train_dataset = TensorDataset(X_train_t, y_train_t)
 val_dataset   = TensorDataset(X_val_t,   y_val_t)
@@ -198,7 +238,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
     test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-    model = NLinear(lookback=LOOKBACK, horizon=HORIZON).to(device)
+    model = NLinear(lookback=LOOKBACK, horizon=HORIZON, num_features=X_train_scaled.shape[1], target_idx=TARGET_CH_IDX).to(device)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     results_data["total_parameters"] = total_params
 
