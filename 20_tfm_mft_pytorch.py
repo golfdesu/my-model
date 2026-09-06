@@ -361,7 +361,7 @@ class MFTModel(nn.Module):
     Combines 3M Multi-scale Modeling, FAM base weights, MFM dynamic fusion,
     and a recurrent LSTM Decoder with Dual Feature Aggregation.
     """
-    def __init__(self, lookback=96, num_features=29, horizon=48,
+    def __init__(self, lookback=96, num_features=28, horizon=48,
                  target_idx=None, base_weights=None,
                  d_model=64, num_heads=4, d_ff=128, num_layers=2,
                  decoder_hidden_dim=64, dropout_rate=0.1):
@@ -478,255 +478,259 @@ results_data = {
 steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
-print("\nPre-building sequence tensors...")
-X_train_t, y_train_t, _, _ = create_windowed_tensors(X_train_scaled, y_train_scaled, LOOKBACK, HORIZON)
-X_val_t,   y_val_t,   _, _ = create_windowed_tensors(X_val_scaled,   y_val_scaled,   LOOKBACK, HORIZON)
-X_test_t,  y_test_t,  X_test_seq, y_test_seq = create_windowed_tensors(X_test_scaled, y_test_scaled, LOOKBACK, HORIZON)
+def run_benchmark():
+    print("\nPre-building sequence tensors...")
+    X_train_t, y_train_t, _, _ = create_windowed_tensors(X_train_scaled, y_train_scaled, LOOKBACK, HORIZON)
+    X_val_t,   y_val_t,   _, _ = create_windowed_tensors(X_val_scaled,   y_val_scaled,   LOOKBACK, HORIZON)
+    X_test_t,  y_test_t,  X_test_seq, y_test_seq = create_windowed_tensors(X_test_scaled, y_test_scaled, LOOKBACK, HORIZON)
 
-train_dataset = TensorDataset(X_train_t, y_train_t)
-val_dataset   = TensorDataset(X_val_t,   y_val_t)
-test_dataset  = TensorDataset(X_test_t,  y_test_t)
+    train_dataset = TensorDataset(X_train_t, y_train_t)
+    val_dataset   = TensorDataset(X_val_t,   y_val_t)
+    test_dataset  = TensorDataset(X_test_t,  y_test_t)
 
-print(f"Train Tensors: {X_train_t.shape}, Val: {X_val_t.shape}, Test: {X_test_t.shape}")
-print(f"Starting {len(SEEDS)}-Seed Benchmark Loop for Multi-scale Fusion Transformer (MFT)...")
+    print(f"Train Tensors: {X_train_t.shape}, Val: {X_val_t.shape}, Test: {X_test_t.shape}")
+    print(f"Starting {len(SEEDS)}-Seed Benchmark Loop for Multi-scale Fusion Transformer (MFT)...")
 
-# ---------------------------------------------------------
-# 6. Multi-Seed Training & Benchmark Execution Loop
-# ---------------------------------------------------------
-all_seed_metrics = []
-all_predictions = {}
-best_overall_val_loss = float("inf")
-best_seed_id = None
+    # ---------------------------------------------------------
+    # 6. Multi-Seed Training & Benchmark Execution Loop
+    # ---------------------------------------------------------
+    all_seed_metrics = []
+    all_predictions = {}
+    best_overall_val_loss = float("inf")
+    best_seed_id = None
 
-for seed_idx, SEED in enumerate(SEEDS, 1):
-    seed_start_time = time.time()
-    if device.type == "cuda":
-        torch.cuda.reset_peak_memory_stats()
-    print(f"\n{'='*70}")
-    print(f"RUNNING SEED {SEED} ({seed_idx}/{len(SEEDS)}) — {MODEL_NAME}")
-    print(f"{'='*70}")
+    for seed_idx, SEED in enumerate(SEEDS, 1):
+        seed_start_time = time.time()
+        if device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats()
+        print(f"\n{'='*70}")
+        print(f"RUNNING SEED {SEED} ({seed_idx}/{len(SEEDS)}) — {MODEL_NAME}")
+        print(f"{'='*70}")
 
-    torch.manual_seed(SEED)
-    torch.cuda.manual_seed_all(SEED)
-    np.random.seed(SEED)
+        torch.manual_seed(SEED)
+        torch.cuda.manual_seed_all(SEED)
+        np.random.seed(SEED)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  drop_last=True, pin_memory=(device.type == 'cuda'))
-    val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
-    test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  drop_last=True, pin_memory=(device.type == 'cuda'))
+        val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
+        test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-    model = MFTModel(
-        lookback=LOOKBACK,
-        num_features=X_train_scaled.shape[1],
-        horizon=HORIZON,
-        target_idx=TARGET_CH_IDX,
-        base_weights=fam_base_weights,
-        d_model=64,
-        num_heads=8,
-        d_ff=256,
-        num_layers=1,
-        decoder_hidden_dim=128,
-        dropout_rate=0.10
-    ).to(device)
+        model = MFTModel(
+            lookback=LOOKBACK,
+            num_features=X_train_scaled.shape[1],
+            horizon=HORIZON,
+            target_idx=TARGET_CH_IDX,
+            base_weights=fam_base_weights,
+            d_model=64,
+            num_heads=8,
+            d_ff=256,
+            num_layers=1,
+            decoder_hidden_dim=128,
+            dropout_rate=0.10
+        ).to(device)
 
-    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    if seed_idx == 1:
-        print(f"MFT Model Trainable Parameters: {total_params:,}")
-        results_data["total_parameters"] = total_params
+        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        if seed_idx == 1:
+            print(f"MFT Model Trainable Parameters: {total_params:,}")
+            results_data["total_parameters"] = total_params
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0009910830792008707, weight_decay=3.7357716213410245e-06)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
+        criterion = nn.MSELoss()
+        optimizer = optim.Adam(model.parameters(), lr=0.0009910830792008707, weight_decay=3.7357716213410245e-06)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
-    epochs = 200
-    patience = 15
-    best_val_loss = float('inf')
-    train_loss_history = []
-    val_loss_history   = []
-    best_epoch = 1
-    patience_counter = 0
-    best_model_weights = None
-    t0 = time.time()
+        epochs = 200
+        patience = 15
+        best_val_loss = float('inf')
+        train_loss_history = []
+        val_loss_history   = []
+        best_epoch = 1
+        patience_counter = 0
+        best_model_weights = None
+        t0 = time.time()
 
-    epoch_pbar = tqdm(range(1, epochs + 1), desc=f"Seed {SEED} Training", leave=True)
-    for epoch in epoch_pbar:
-        model.train()
-        train_loss = 0.0
-        for bX, by in train_loader:
-            bX, by = bX.to(device), by.to(device)
-            optimizer.zero_grad(set_to_none=True)
-            loss = criterion(model(bX), by)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
-            train_loss += loss.item() * bX.size(0)
-        train_loss /= len(train_dataset)
-
-        model.eval()
-        val_loss = 0.0
-        with torch.inference_mode():
-            for bX, by in val_loader:
+        epoch_pbar = tqdm(range(1, epochs + 1), desc=f"Seed {SEED} Training", leave=True)
+        for epoch in epoch_pbar:
+            model.train()
+            train_loss = 0.0
+            for bX, by in train_loader:
                 bX, by = bX.to(device), by.to(device)
-                val_loss += criterion(model(bX), by).item() * bX.size(0)
-        val_loss /= len(val_dataset)
-        scheduler.step(val_loss)
+                optimizer.zero_grad(set_to_none=True)
+                loss = criterion(model(bX), by)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+                train_loss += loss.item() * bX.size(0)
+            train_loss /= len(train_dataset)
 
-        train_loss_history.append(float(train_loss))
-        val_loss_history.append(float(val_loss))
+            model.eval()
+            val_loss = 0.0
+            with torch.inference_mode():
+                for bX, by in val_loader:
+                    bX, by = bX.to(device), by.to(device)
+                    val_loss += criterion(model(bX), by).item() * bX.size(0)
+            val_loss /= len(val_dataset)
+            scheduler.step(val_loss)
 
-        if val_loss < best_val_loss:
-            best_val_loss    = val_loss
-            best_epoch       = epoch
-            patience_counter = 0
-            best_model_weights = {k: v.cpu().clone() for k, v in model.state_dict().items()}
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print(f"  Early stop at epoch {epoch}")
-                break
+            train_loss_history.append(float(train_loss))
+            val_loss_history.append(float(val_loss))
 
-        epoch_pbar.set_postfix({
-            'train': f"{train_loss:.5f}", 'val': f"{val_loss:.5f}",
-            'best':  f"{best_val_loss:.5f}", 'pat': f"{patience_counter}/{patience}"
-        })
+            if val_loss < best_val_loss:
+                best_val_loss    = val_loss
+                best_epoch       = epoch
+                patience_counter = 0
+                best_model_weights = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"  Early stop at epoch {epoch}")
+                    break
 
-    elapsed = time.time() - t0
-    print(f"Training time: {elapsed:.1f}s | Best Val Loss: {best_val_loss:.6f}")
+            epoch_pbar.set_postfix({
+                'train': f"{train_loss:.5f}", 'val': f"{val_loss:.5f}",
+                'best':  f"{best_val_loss:.5f}", 'pat': f"{patience_counter}/{patience}"
+            })
 
-    # Restore best weights
-    if best_model_weights is not None:
-        model.load_state_dict({k: v.to(device) for k, v in best_model_weights.items()})
+        elapsed = time.time() - t0
+        print(f"Training time: {elapsed:.1f}s | Best Val Loss: {best_val_loss:.6f}")
 
-    # Test set evaluation
-    model.eval()
-    all_preds, all_targets = [], []
-    with torch.inference_mode():
-        for bX, by in test_loader:
-            all_preds.append(model(bX.to(device)).cpu().numpy())
-            all_targets.append(by.numpy())
+        # Restore best weights
+        if best_model_weights is not None:
+            model.load_state_dict({k: v.to(device) for k, v in best_model_weights.items()})
 
-    y_pred_scaled = np.concatenate(all_preds,   axis=0)
-    y_true_scaled = np.concatenate(all_targets, axis=0)
+        # Test set evaluation
+        model.eval()
+        all_preds, all_targets = [], []
+        with torch.inference_mode():
+            for bX, by in test_loader:
+                all_preds.append(model(bX.to(device)).cpu().numpy())
+                all_targets.append(by.numpy())
 
-    y_pred_kw = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).reshape(-1, HORIZON)
-    y_true_kw = scaler_y.inverse_transform(y_true_scaled.reshape(-1, 1)).reshape(-1, HORIZON)
+        y_pred_scaled = np.concatenate(all_preds,   axis=0)
+        y_true_scaled = np.concatenate(all_targets, axis=0)
 
-    # Overall metrics across horizon
-    metrics = compute_metrics(y_true_kw.flatten(), y_pred_kw.flatten(), peak_threshold_kw)
-    all_seed_metrics.append(metrics)
+        y_pred_kw = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).reshape(-1, HORIZON)
+        y_true_kw = scaler_y.inverse_transform(y_true_scaled.reshape(-1, 1)).reshape(-1, HORIZON)
 
-    print(f"\n--- Seed {SEED} Overall Test Metrics ---")
-    print(f"  MAE:  {metrics['mae']:.4f} kWh")
-    print(f"  RMSE: {metrics['rmse']:.4f} kWh")
-    print(f"  R²:   {metrics['r2']:.4f}")
-    print(f"  WAPE: {metrics['wape']:.2f}%")
+        # Overall metrics across horizon
+        metrics = compute_metrics(y_true_kw.flatten(), y_pred_kw.flatten(), peak_threshold_kw)
+        all_seed_metrics.append(metrics)
 
-    per_step_metrics = {}
-    for step in steps_to_eval:
-        step_metrics = compute_metrics(y_true_kw[:, step], y_pred_kw[:, step], peak_threshold_kw)
-        label = step_labels[step]
-        per_step_metrics[label] = {k: (float(v) if not np.isnan(v) else None) for k, v in step_metrics.items()}
-        print(f"  [{label}] MAE: {step_metrics['mae']:.4f}, RMSE: {step_metrics['rmse']:.4f}, WAPE: {step_metrics['wape']:.2f}%")
+        print(f"\n--- Seed {SEED} Overall Test Metrics ---")
+        print(f"  MAE:  {metrics['mae']:.4f} kWh")
+        print(f"  RMSE: {metrics['rmse']:.4f} kWh")
+        print(f"  R²:   {metrics['r2']:.4f}")
+        print(f"  WAPE: {metrics['wape']:.2f}%")
 
-    seed_duration = round(time.time() - seed_start_time, 2)
-    peak_vram_mb = round(torch.cuda.max_memory_allocated() / (1024**2), 2) if device.type == 'cuda' else 0.0
-    metrics["training_time_seconds"] = seed_duration
-    metrics["peak_gpu_memory_mb"] = peak_vram_mb
+        per_step_metrics = {}
+        for step in steps_to_eval:
+            step_metrics = compute_metrics(y_true_kw[:, step], y_pred_kw[:, step], peak_threshold_kw)
+            label = step_labels[step]
+            per_step_metrics[label] = {k: (float(v) if not np.isnan(v) else None) for k, v in step_metrics.items()}
+            print(f"  [{label}] MAE: {step_metrics['mae']:.4f}, RMSE: {step_metrics['rmse']:.4f}, WAPE: {step_metrics['wape']:.2f}%")
 
-    mae_48 = [float(mean_absolute_error(y_true_kw[:, s], y_pred_kw[:, s])) for s in range(HORIZON)]
-    rmse_48 = [float(np.sqrt(mean_squared_error(y_true_kw[:, s], y_pred_kw[:, s]))) for s in range(HORIZON)]
+        seed_duration = round(time.time() - seed_start_time, 2)
+        peak_vram_mb = round(torch.cuda.max_memory_allocated() / (1024**2), 2) if device.type == 'cuda' else 0.0
+        metrics["training_time_seconds"] = seed_duration
+        metrics["peak_gpu_memory_mb"] = peak_vram_mb
 
-    all_predictions[f"seed_{SEED}"] = y_pred_kw.astype(np.float32)
+        mae_48 = [float(mean_absolute_error(y_true_kw[:, s], y_pred_kw[:, s])) for s in range(HORIZON)]
+        rmse_48 = [float(np.sqrt(mean_squared_error(y_true_kw[:, s], y_pred_kw[:, s]))) for s in range(HORIZON)]
 
-    # Save best overall checkpoint across all seeds
-    if best_val_loss < best_overall_val_loss and best_model_weights is not None:
-        best_overall_val_loss = best_val_loss
-        best_seed_id = SEED
-        torch.save(best_model_weights, output_pt_filename)
-        torch.save(best_model_weights, f"{MODEL_NAME}_best.pt")
-        results_data["best_seed"] = int(SEED)
-        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> {output_pt_filename}")
+        all_predictions[f"seed_{SEED}"] = y_pred_kw.astype(np.float32)
 
-    results_data["seeds"][str(SEED)] = {
-        "training_time_seconds": seed_duration,
-        "peak_gpu_memory_mb": peak_vram_mb,
-        "epochs": list(range(1, len(train_loss_history) + 1)),
-        "train_loss": [float(v) for v in train_loss_history],
-        "val_loss": [float(v) for v in val_loss_history],
-        "best_epoch": int(best_epoch),
-        "best_val_loss": float(best_val_loss),
-        "overall_metrics": {k: (float(v) if not np.isnan(v) else None) for k, v in metrics.items()},
-        "per_step_metrics": per_step_metrics,
-        "step_48_metrics": {
-            "mae": mae_48,
-            "rmse": rmse_48
+        # Save best overall checkpoint across all seeds
+        if best_val_loss < best_overall_val_loss and best_model_weights is not None:
+            best_overall_val_loss = best_val_loss
+            best_seed_id = SEED
+            torch.save(best_model_weights, output_pt_filename)
+            torch.save(best_model_weights, f"{MODEL_NAME}_best.pt")
+            results_data["best_seed"] = int(SEED)
+            print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> {output_pt_filename}")
+
+        results_data["seeds"][str(SEED)] = {
+            "training_time_seconds": seed_duration,
+            "peak_gpu_memory_mb": peak_vram_mb,
+            "epochs": list(range(1, len(train_loss_history) + 1)),
+            "train_loss": [float(v) for v in train_loss_history],
+            "val_loss": [float(v) for v in val_loss_history],
+            "best_epoch": int(best_epoch),
+            "best_val_loss": float(best_val_loss),
+            "overall_metrics": {k: (float(v) if not np.isnan(v) else None) for k, v in metrics.items()},
+            "per_step_metrics": per_step_metrics,
+            "step_48_metrics": {
+                "mae": mae_48,
+                "rmse": rmse_48
+            }
         }
-    }
 
-    # Save incremental JSON after each seed
+        # Save incremental JSON after each seed
+        with open(output_json_filename, "w", encoding="utf-8") as f:
+            json.dump(results_data, f, indent=2)
+        with open(root_json_filename, "w", encoding="utf-8") as f:
+            json.dump(results_data, f, indent=2)
+        print(f"Successfully saved SEED {SEED} results to {output_json_filename} (Runtime: {seed_duration}s)")
+
+        gc.collect()
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
+
+    # ---------------------------------------------------------
+    # 7. Final Summary & Predictions Serialization
+    # ---------------------------------------------------------
+    all_predictions["y_true"] = y_true_kw.astype(np.float32)
+    available_seeds = [s for s in SEEDS if f"seed_{s}" in all_predictions]
+    if available_seeds:
+        pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in available_seeds], axis=0)
+        all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
+        all_predictions["pred_std"]  = np.std(pred_stack,  axis=0).astype(np.float32)
+    else:
+        all_predictions["pred_mean"] = np.zeros_like(y_true_kw, dtype=np.float32)
+        all_predictions["pred_std"]  = np.zeros_like(y_true_kw, dtype=np.float32)
+
+    np.savez_compressed(output_npz_filename, **all_predictions)
+    np.savez_compressed(f"{MODEL_NAME}_predictions.npz", **all_predictions)
+    print(f"Successfully saved all seed predictions to {output_npz_filename} and {MODEL_NAME}_predictions.npz")
+
+    print(f"\n{'='*70}")
+    print(f"FINAL SUMMARY ACROSS {len(available_seeds)} SEEDS — {MODEL_NAME}")
+    print(f"{'='*70}")
+    metric_keys = ['mae', 'rmse', 'r2', 'wape', 'mape', 'bias', 'negative_pct', 'training_time_seconds', 'peak_gpu_memory_mb']
+    summary_dict = {}
+    for k in metric_keys:
+        vals = [m[k] for m in all_seed_metrics if k in m and not np.isnan(m[k])]
+        if vals:
+            mu, sigma = float(np.mean(vals)), float(np.std(vals))
+            print(f"  {k.upper():<22}: {mu:.4f} ± {sigma:.4f}")
+            summary_dict[k] = {"mean": mu, "std": sigma}
+
+    all_mae_48 = [results_data["seeds"][str(s)]["step_48_metrics"]["mae"] for s in results_data["seeds"] if "step_48_metrics" in results_data["seeds"][str(s)]]
+    if all_mae_48:
+        summary_dict["mean_mae_by_step_48"] = [float(v) for v in np.mean(all_mae_48, axis=0)]
+
+    results_data["config"] = {
+        "model": "MFT (Multi-scale Fusion Transformer)",
+        "lookback": LOOKBACK,
+        "horizon": HORIZON,
+        "batch_size": BATCH_SIZE,
+        "seeds": SEEDS,
+        "d_model": 64,
+        "num_heads": 8,
+        "d_ff": 256,
+        "num_layers": 1,
+        "decoder_hidden_dim": 128,
+        "dropout_rate": 0.10,
+        "learning_rate": 0.0009910830792008707,
+        "weight_decay": 3.7357716213410245e-06,
+        "total_parameters": results_data.get("total_parameters", None)
+    }
+    results_data["summary"] = summary_dict
+
     with open(output_json_filename, "w", encoding="utf-8") as f:
         json.dump(results_data, f, indent=2)
     with open(root_json_filename, "w", encoding="utf-8") as f:
         json.dump(results_data, f, indent=2)
-    print(f"Successfully saved SEED {SEED} results to {output_json_filename} (Runtime: {seed_duration}s)")
 
-    gc.collect()
-    if device.type == 'cuda':
-        torch.cuda.empty_cache()
+    print(f"\nSuccessfully saved final results to {output_json_filename} and {root_json_filename}")
 
-# ---------------------------------------------------------
-# 7. Final Summary & Predictions Serialization
-# ---------------------------------------------------------
-all_predictions["y_true"] = y_true_kw.astype(np.float32)
-available_seeds = [s for s in SEEDS if f"seed_{s}" in all_predictions]
-if available_seeds:
-    pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in available_seeds], axis=0)
-    all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
-    all_predictions["pred_std"]  = np.std(pred_stack,  axis=0).astype(np.float32)
-else:
-    all_predictions["pred_mean"] = np.zeros_like(y_true_kw, dtype=np.float32)
-    all_predictions["pred_std"]  = np.zeros_like(y_true_kw, dtype=np.float32)
-
-np.savez_compressed(output_npz_filename, **all_predictions)
-np.savez_compressed(f"{MODEL_NAME}_predictions.npz", **all_predictions)
-print(f"Successfully saved all seed predictions to {output_npz_filename} and {MODEL_NAME}_predictions.npz")
-
-print(f"\n{'='*70}")
-print(f"FINAL SUMMARY ACROSS {len(available_seeds)} SEEDS — {MODEL_NAME}")
-print(f"{'='*70}")
-metric_keys = ['mae', 'rmse', 'r2', 'wape', 'mape', 'bias', 'negative_pct', 'training_time_seconds', 'peak_gpu_memory_mb']
-summary_dict = {}
-for k in metric_keys:
-    vals = [m[k] for m in all_seed_metrics if k in m and not np.isnan(m[k])]
-    if vals:
-        mu, sigma = float(np.mean(vals)), float(np.std(vals))
-        print(f"  {k.upper():<22}: {mu:.4f} ± {sigma:.4f}")
-        summary_dict[k] = {"mean": mu, "std": sigma}
-
-all_mae_48 = [results_data["seeds"][str(s)]["step_48_metrics"]["mae"] for s in results_data["seeds"] if "step_48_metrics" in results_data["seeds"][str(s)]]
-if all_mae_48:
-    summary_dict["mean_mae_by_step_48"] = [float(v) for v in np.mean(all_mae_48, axis=0)]
-
-results_data["config"] = {
-    "model": "MFT (Multi-scale Fusion Transformer)",
-    "lookback": LOOKBACK,
-    "horizon": HORIZON,
-    "batch_size": BATCH_SIZE,
-    "seeds": SEEDS,
-    "d_model": 64,
-    "num_heads": 8,
-    "d_ff": 256,
-    "num_layers": 1,
-    "decoder_hidden_dim": 128,
-    "dropout_rate": 0.10,
-    "learning_rate": 0.0009910830792008707,
-    "weight_decay": 3.7357716213410245e-06,
-    "total_parameters": results_data.get("total_parameters", None)
-}
-results_data["summary"] = summary_dict
-
-with open(output_json_filename, "w", encoding="utf-8") as f:
-    json.dump(results_data, f, indent=2)
-with open(root_json_filename, "w", encoding="utf-8") as f:
-    json.dump(results_data, f, indent=2)
-
-print(f"\nSuccessfully saved final results to {output_json_filename} and {root_json_filename}")
+if __name__ == "__main__":
+    run_benchmark()
