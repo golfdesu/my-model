@@ -190,7 +190,7 @@ import time
 # Config Parameters (identical to Baseline Transformer)
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 output_json_filename = "09_lstm_baseline_pytorch_results.json"
 results_data = {
@@ -237,12 +237,12 @@ def run_benchmark():
         test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
         # Build Model
-        model = LSTMBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=32, num_layers=2, dropout_rate=0.05).to(device)
+        model = LSTMBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, num_layers=1, dropout_rate=0.05).to(device)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         results_data["total_parameters"] = total_params
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.0002451331674531841, weight_decay=5.590664095943572e-06)
+        optimizer = optim.Adam(model.parameters(), lr=0.0003824284385442332, weight_decay=2.8039822000297003e-05)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
         # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)

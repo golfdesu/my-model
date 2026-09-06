@@ -233,12 +233,12 @@ def run_benchmark():
         test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
         # Build Model
-        model = GRUBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=32, num_layers=2, dropout_rate=0.05).to(device)
+        model = GRUBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, num_layers=1, dropout_rate=0.05).to(device)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         results_data["total_parameters"] = total_params
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.0002879072269095514, weight_decay=1.1837388071721317e-05)
+        optimizer = optim.Adam(model.parameters(), lr=0.00016416177070654978, weight_decay=2.0782842681178182e-06)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
         # Training Loop with Early Stopping & Single Outer tqdm Progress Bar

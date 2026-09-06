@@ -289,7 +289,7 @@ import time
 # Config Parameters
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 output_json_filename = "13_smamba_baseline_pytorch_results.json"
 results_data = {
@@ -337,7 +337,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     results_data["total_parameters"] = total_params
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0009199242357311898, weight_decay=9.241634598289258e-05)
+    optimizer = optim.Adam(model.parameters(), lr=0.0039205161753777355, weight_decay=6.24414833984542e-06)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs = 200
