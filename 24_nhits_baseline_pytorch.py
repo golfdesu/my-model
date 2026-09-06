@@ -294,6 +294,8 @@ class NHiTS(nn.Module):
 
         return total_forecast
 
+NHiTSModel = NHiTS
+
 # ---------------------------------------------------------
 # 4. Training, Evaluation & Benchmarking Functions
 # ---------------------------------------------------------
@@ -395,7 +397,7 @@ def run_seed(seed):
         shuffle=False
     )
 
-    model = NHiTSModel(
+    model = NHiTS(
         lookback=CONFIG["lookback"],
         num_features=CONFIG["num_features"],
         horizon=CONFIG["horizon"],
