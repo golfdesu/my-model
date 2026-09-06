@@ -118,27 +118,12 @@ def create_windowed_tensors(X_data, y_data, lookback, horizon):
     y_t = torch.tensor(np.array(y_seq, dtype=np.float32))
     return X_t, y_t, np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32)
 
-# Helper 2: PyTorch Gaussian Noise Layer (kept identical to Baseline Transformer for fair comparison)
-class GaussianNoise(nn.Module):
-    def __init__(self, stddev=0.05):
-        super().__init__()
-        self.stddev = stddev
-
-    def forward(self, x):
-        if self.training and self.stddev > 0:
-            return x + torch.randn_like(x) * self.stddev
-        return x
-
-# Helper 3: LSTM Encoder-Only Architecture in PyTorch
-# Mirrors EncoderOnlyTransformer (01_tfm_tfm_pytorch.py) exactly, except
-# nn.TransformerEncoder -> nn.LSTM (no attention, no positional embedding needed
-# since LSTM is inherently sequential/order-aware).
+# Helper 2: LSTM Encoder-Only Architecture in PyTorch (Hochreiter & Schmidhuber, 1997)
 class LSTMBaseline(nn.Module):
     def __init__(self, lookback, num_features, horizon, d_model=64, num_layers=2,
-                 dropout_rate=0.2, noise_stddev=0.05):
+                 dropout_rate=0.2):
         super().__init__()
         self.feature_proj = nn.Linear(num_features, d_model)
-        self.gaussian_noise = GaussianNoise(stddev=noise_stddev)
         self.dropout = nn.Dropout(dropout_rate)
 
         # Core sequence layer: LSTM instead of Transformer encoder.
@@ -163,7 +148,6 @@ class LSTMBaseline(nn.Module):
     def forward(self, x):
         # x: [batch, lookback, num_features]
         x = self.feature_proj(x)
-        x = self.gaussian_noise(x)
         x = self.dropout(x)
 
         lstm_out, _ = self.lstm(x)  # [batch, lookback, d_model]
@@ -253,7 +237,7 @@ def run_benchmark():
         test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
         # Build Model
-        model = LSTMBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=32, num_layers=2, dropout_rate=0.05, noise_stddev=0.01).to(device)
+        model = LSTMBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=32, num_layers=2, dropout_rate=0.05).to(device)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         results_data["total_parameters"] = total_params
 

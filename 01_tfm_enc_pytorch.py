@@ -137,24 +137,12 @@ class PositionalEmbedding(nn.Module):
         # x shape: [batch, seq_len, d_model]
         return x + self.pe[:, :x.size(1), :]
 
-# Helper 3: PyTorch Gaussian Noise Layer
-class GaussianNoise(nn.Module):
-    def __init__(self, stddev=0.01):
-        super().__init__()
-        self.stddev = stddev
-
-    def forward(self, x):
-        if self.training and self.stddev > 0:
-            return x + torch.randn_like(x) * self.stddev
-        return x
-
-# Helper 4: Encoder-Only Transformer Architecture in PyTorch
+# Helper 3: Encoder-Only Transformer Architecture in PyTorch (Vaswani et al., NeurIPS 2017)
 class EncoderOnlyTransformer(nn.Module):
     def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2,
-                 dropout_rate=0.2, noise_stddev=0.01):
+                 dropout_rate=0.2):
         super().__init__()
         self.feature_proj = nn.Linear(num_features, d_model)
-        self.noise = GaussianNoise(noise_stddev)
         self.pos_emb = PositionalEmbedding(lookback, d_model)
         self.dropout = nn.Dropout(dropout_rate)
 
@@ -179,7 +167,6 @@ class EncoderOnlyTransformer(nn.Module):
     def forward(self, x):
         # x: [batch, lookback, num_features]
         x = self.feature_proj(x)
-        x = self.noise(x)
         x = self.pos_emb(x)
         x = self.dropout(x)
 

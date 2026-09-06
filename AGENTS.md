@@ -117,6 +117,11 @@ Every agent must strictly maintain complete compliance with these scientific inv
    - Multi-Seed Benchmark: `SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]`.
    - Every seed must run with full determinism (`torch.manual_seed`, `np.random.seed`, `random.seed`, `torch.cuda.manual_seed_all`).
 
+### 3.1 The Golden Rule of Benchmark Fidelity & Canonical Purity (CRITICAL INVARIANT)
+- **Model 00 (Proposed Custom Transformer)**: The **ONLY** model under active proposal and architectural invention (Thesis Contribution). It incorporates Attention Orthogonal Regularization ($\lambda_{\text{ortho}}$) and thesis-specific inductive biases.
+- **Models 01 through 31 (All Baselines)**: Must strictly match their canonical published research papers **100%** (Vaswani 2017, Informer, Autoformer, PatchTST, iTransformer, TimesNet, LSTM, GRU, DLinear, NLinear, S-Mamba, PowerMamba, TimeMachine, S4D, ModernTCN, etc.).
+- **NO FOREIGN ARTIFACTS IN BASELINES**: Baselines MUST NOT contain ad-hoc foreign layers (e.g., `GaussianNoise` / input jittering), unofficial structural shortcuts, or artificial feature dropping. All baselines must be adapted faithfully and fairly to the EV load sequence geometry ($L=96, H=48, 28$ features) following their canonical literature specifications without unvetted modifications.
+
 ---
 
 ## 4. Hardware & Execution Constraints (Erawan HPC vs Local)
