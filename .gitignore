@@ -26,7 +26,11 @@ __pycache__/
 .venv/
 **/.venv/**
 logs/
-**/logs/**
-*.pt
-*.npz
-*_results.json
+
+
+# 5. Allow tracking of benchmark results and model artifacts
+!*_results.json
+!*_predictions.npz
+!*_best.pt
+!outputs/
+!outputs/**
