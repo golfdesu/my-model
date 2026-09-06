@@ -713,13 +713,13 @@ results_data["config"] = {
     "batch_size": BATCH_SIZE,
     "seeds": SEEDS,
     "d_model": 64,
-    "num_heads": 4,
-    "d_ff": 128,
-    "num_layers": 2,
-    "decoder_hidden_dim": 64,
+    "num_heads": 8,
+    "d_ff": 256,
+    "num_layers": 1,
+    "decoder_hidden_dim": 128,
     "dropout_rate": 0.10,
-    "learning_rate": 0.0005,
-    "weight_decay": 1e-5,
+    "learning_rate": 0.0009910830792008707,
+    "weight_decay": 3.7357716213410245e-06,
     "total_parameters": results_data.get("total_parameters", None)
 }
 results_data["summary"] = summary_dict
