@@ -198,9 +198,9 @@ class SegRNN(nn.Module):
         query = torch.cat([pos_emb, channel_emb], dim=-1)
         query = query.view(-1, 1, query.shape[-1]).repeat(B, 1, 1)
 
-        hn_repeat = hn.repeat(1, 1, self.num_segs_y).view(1, -1, hn.shape[-1])
-        _, hy = self.rnn(query, hn_repeat)
-        y = self.predict(hy).view(B, D, self.horizon)
+        hn_repeat = hn.repeat_interleave(self.num_segs_y, dim=1)
+        out, _ = self.rnn(query, hn_repeat)
+        y = self.predict(out.squeeze(1)).view(B, D, self.horizon)
 
         # 5. De-normalization
         y = y + seq_last.permute(0, 2, 1)
