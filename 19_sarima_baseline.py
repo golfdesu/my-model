@@ -220,6 +220,20 @@ results_data["step_48_metrics"] = {
     "mae": mae_48,
     "rmse": rmse_48
 }
+summary_dict = {}
+for k, v in overall_metrics.items():
+    if v is not None and not np.isnan(v):
+        summary_dict[k] = {"mean": float(v), "std": 0.0}
+summary_dict["mean_mae_by_step_48"] = mae_48
+results_data["summary"] = summary_dict
+results_data["seeds"] = {
+    "42": {
+        "overall_metrics": results_data["overall_metrics"],
+        "per_step_metrics": results_data["per_step_metrics"],
+        "step_48_metrics": results_data["step_48_metrics"],
+        "training_time_seconds": round(elapsed, 2)
+    }
+}
 results_data["config"] = {
     "lookback": LOOKBACK if 'LOOKBACK' in globals() else 96,
     "horizon": HORIZON,
@@ -229,7 +243,9 @@ results_data["config"] = {
 }
 with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
-print(f"Successfully saved SARIMA baseline results to {output_json_filename}")
+with open("19_sarima_baseline_results.json", "w", encoding="utf-8") as f:
+    json.dump(results_data, f, indent=2)
+print(f"Successfully saved SARIMA baseline results to {output_json_filename} and 19_sarima_baseline_results.json")
 
 np.savez_compressed(
     f"19_sarima_baseline_predictions.npz",

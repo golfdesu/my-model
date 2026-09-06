@@ -24,4 +24,4 @@
 | 17 | `12_nlinear_baseline_pytorch` | Linear & Decomp | 6.2466 ± 0.0036 | 10.4387 ± 0.0011 | 73.36% ± 0.04% | 21.3976 | 0.4313 | 4,656 | 21.8s |
 | 18 | `11_dlinear_baseline_pytorch` | Linear & Decomp | 6.9832 ± 0.0540 | 10.4371 ± 0.0227 | 82.01% ± 0.63% | 19.6748 | 0.4315 | 9,312 | 5.1s |
 | 19 | `06_tfm_ptst_pytorch` | Transformer | 7.2949 ± 0.1759 | 10.7911 ± 0.2136 | 85.67% ± 2.07% | 14.3890 | 0.3921 | 542,056 | 75.9s |
-| 20 | `19_sarima_baseline` | Statistical Baseline | nan ± nan | nan ± nan | nan% ± nan% | N/A | N/A | 4 | N/A |
+| 20 | `19_sarima_baseline` | Statistical Baseline | 10.1119 ± 0.0000 | 13.8129 ± 0.0000 | 108.27% ± 0.00% | 20.3742 | 0.1407 | 4 | 11593.7s |
