@@ -521,10 +521,10 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         target_idx=TARGET_CH_IDX,
         base_weights=fam_base_weights,
         d_model=64,
-        num_heads=4,
-        d_ff=128,
-        num_layers=2,
-        decoder_hidden_dim=64,
+        num_heads=8,
+        d_ff=256,
+        num_layers=1,
+        decoder_hidden_dim=128,
         dropout_rate=0.10
     ).to(device)
 
@@ -534,7 +534,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         results_data["total_parameters"] = total_params
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=0.0009910830792008707, weight_decay=3.7357716213410245e-06)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs = 200

@@ -347,12 +347,12 @@ CONFIG = {
     "lookback": LOOKBACK,
     "num_features": num_total_features,
     "horizon": HORIZON,
-    "num_channels": [64, 64, 64, 64, 64],
-    "kernel_size": 3,
-    "dropout": 0.10,
-    "learning_rate": 5e-4,
-    "weight_decay": 1e-5,
-    "batch_size": 128,
+    "num_channels": [128, 128, 128, 128],
+    "kernel_size": 5,
+    "dropout": 0.20,
+    "learning_rate": 0.0009580660087968524,
+    "weight_decay": 0.00011524779526588059,
+    "batch_size": 64,
     "epochs": 100,
     "patience": 12
 }
