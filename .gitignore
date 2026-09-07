@@ -28,9 +28,9 @@ __pycache__/
 logs/
 
 
-# 5. Allow tracking of benchmark results and model artifacts
+# 5. Benchmark results and model artifacts
 !*_results.json
 !*_predictions.npz
 !*_best.pt
-!outputs/
-!outputs/**
+outputs/
+outputs/**
