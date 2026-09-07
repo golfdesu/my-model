@@ -1,43 +1,54 @@
 # 00 Custom Model Feature Registry & Roadmap (`00_tfm_custom_pytorch.py`)
 
-เอกสารฉบับนี้เป็นบันทึกรายละเอียดการปรับแต่ง (Customization Registry) ของโมเดล [**`00_tfm_custom_pytorch.py`**](file:///C:/Users/chaya/Documents/Program/Practice/model/00_tfm_custom_pytorch.py) ซึ่งพัฒนาต่อยอดมาจากโมเดลมาตรฐาน [**`01_tfm_tfm_pytorch.py`**](file:///C:/Users/chaya/Documents/Program/Practice/model/01_tfm_tfm_pytorch.py) (Vanilla Transformer - Vaswani et al., 2017) สำหรับพยากรณ์ EV Charging Load ($L=96, H=48$)
+เอกสารฉบับนี้เป็นบันทึกรายละเอียดการปรับแต่ง (Customization Registry) ของโมเดล [**`00_tfm_custom_pytorch.py`**](file:///C:/Users/chaya/Documents/Program/Practice/model/00_tfm_custom_pytorch.py) ซึ่งพัฒนาต่อยอดมาจากโมเดลมาตรฐาน [**`03_tfm_encdec_pytorch.py`**](file:///C:/Users/chaya/Documents/Program/Practice/model/03_tfm_encdec_pytorch.py) (Full Seq2Seq Transformer - Vaswani et al., 2017) สำหรับพยากรณ์ EV Charging Load ($L=96, H=48$)
 
 ---
 
 ## 📌 1. สถานะปัจจุบัน (Active Configuration)
 
-โมเดล 00 ปัจจุบันมีโครงสร้างเหมือนโมเดล 01 ทุกประการ (Ablation Baseline) โดยเปิดใช้งานฟีเจอร์ Custom เพียง **1 อย่าง**:
+โมเดล 00 ปัจจุบันใช้กระบวนทัศน์ **Full Encoder-Decoder Seq2Seq** โดยเปิดใช้งานฟีเจอร์ Custom:
 
-| รายการ | การตั้งค่าปัจจุบันใน `00_tfm_custom_pytorch.py` | เปรียบเทียบกับโมเดล 01 |
+| รายการ | การตั้งค่าปัจจุบันใน `00_tfm_custom_pytorch.py` | เปรียบเทียบกับโมเดล 03 (Seq2Seq Baseline) |
 | :--- | :--- | :--- |
-| **Active Custom Feature** | **Attention Weight Orthogonal Regularization** ($\lambda = 4.5727 \times 10^{-6}$, จูนได้จาก 1D Optuna HPO) | 01 ไม่มี (เพิ่มเข้ามาเฉพาะใน 00) |
-| **Positional Encoding** | Fixed Sinusoidal (Vaswani et al., 2017) | เหมือน 01 (100%) |
-| **Input Noise** | None (ไม่มีการใส่ Gaussian Noise) | เหมือน 01 (100%) |
-| **Architecture Topology** | $d_{\text{model}}=128$, $\text{heads}=4$, $d_{\text{ff}}=256$, $\text{layers}=1$, $\text{dropout}=0.1$ | เหมือน 01 (100%) |
-| **Output Head** | 2-Layer MLP: $\text{Concat}(\text{last}, \text{avg}) \to 128 \to 64 \to H=48$ | เหมือน 01 (100%) |
-| **Optimization** | $\text{lr}=6.41 \times 10^{-4}$, $\text{weight\_decay}=4.71 \times 10^{-5}$, $\text{batch\_size}=128$ | เหมือน 01 (100%) |
+| **Architecture Paradigm** | **Full Encoder-Decoder Seq2Seq with Cross-Attention** | เหมือน 03 (มี Cross-Attention เชื่อมโยงอดีตสู่ขอบเขตการพยากรณ์) |
+| **Active Custom Feature** | **Attention Weight Orthogonal Regularization** ($\lambda = 1.0 \times 10^{-5}$) | 03 ไม่มี (เพิ่มเข้ามาเฉพาะใน 00 เพื่อคุม Self & Cross-Attention) |
+| **Positional Encoding** | Fixed Sinusoidal Positional Embedding ($L=96, H=48$) | เหมือน 03 (100%) |
+| **Input Noise** | None (ไม่มีการใส่ Gaussian Noise) | เหมือน 03 (100%) |
+| **Architecture Topology** | $d_{\text{model}}=64$, $\text{heads}=4$, $d_{\text{ff}}=128$, $\text{layers}=2$, $\text{dropout}=0.05$ | เหมือน 03 (100%) |
+| **Output Head** | Token-wise Linear Projection (`Linear(d_model, 1)`) $\to [B, H=48]$ | เหมือน 03 (100%) |
+| **Optimization** | $\text{lr}=3.20 \times 10^{-4}$, $\text{weight\_decay}=2.35 \times 10^{-6}$, $\text{batch\_size}=64$ | เหมือน 03 (100%) |
 
 ---
 
-## 🎯 2. รายละเอียด Active Feature 1: Attention Orthogonal Regularization
+## 🎯 2. รายละเอียด Active Feature 1: Attention Orthogonal Regularization บน Seq2Seq
 
 ### ทฤษฎีและที่มา
-ในโมเดล Attention มักเกิดปัญหา **Attention Collapse** หรือ **Numerical Instability** เมื่อ Weight Matrix $W$ มี Condition Number สูงลิ่ว ($\kappa(W) = \frac{\sigma_{\max}}{\sigma_{\min}} \gg 1000$) การเพิ่ม Orthogonal Penalty จะบังคับให้ $W^T W \approx I$ ทำให้ Singular Values กระจายตัวสม่ำเสมอ
+ในโมเดล Encoder-Decoder ที่มีทั้ง Self-Attention และ Cross-Attention ปัญหา **Attention Collapse** หรือ **Condition Number สูงลิ่ว** ($\kappa(W) \gg 1000$) อาจเกิดขึ้นได้ทั้งตอนเข้ารหัสประวัติศาสตร์อดีต และตอนที่ Decoder ทำ Cross-Attention ดึงข้อมูลจาก Encoder การเพิ่ม Orthogonal Penalty จะบังคับให้ $W^T W \approx I$ ครอบคลุมทั้งสามระบบ:
+1. Encoder Self-Attention ($W_Q, W_K, W_V, W_O$)
+2. Decoder Masked Self-Attention ($W_Q, W_K, W_V, W_O$)
+3. Decoder Cross-Attention ($W_Q, W_K, W_V, W_O$)
 
 ### สมการคณิตศาสตร์
-$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{MSE}} + \lambda_{\text{ortho}} \sum_{W \in \{W_Q, W_K, W_V, W_O\}} \|W^T W - I\|_F^2$$
+$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{MSE}} + \lambda_{\text{ortho}} \left( \sum_{l=1}^{N_{\text{enc}}} \mathcal{R}(W_{\text{enc}}^{(l)}) + \sum_{l=1}^{N_{\text{dec}}} \left[ \mathcal{R}(W_{\text{dec\_self}}^{(l)}) + \mathcal{R}(W_{\text{cross}}^{(l)}) \right] \right)$$
+โดยที่ $\mathcal{R}(W) = \sum_{M \in \{Q, K, V, O\}} \|W_M^T W_M - I\|_F^2$
 
 ### การทำงานในโค้ด
 ```python
-def compute_orthogonal_penalty(model, strength=1e-4):
+def compute_orthogonal_penalty(model, strength=1e-5):
     if strength <= 0.0:
         return torch.tensor(0.0, device=device)
     penalty = torch.tensor(0.0, device=device)
     for name, param in model.named_parameters():
-        if ('in_proj_weight' in name or 'out_proj.weight' in name) and param.ndim == 2:
-            wt_w = torch.matmul(param.t(), param)
-            identity = torch.eye(wt_w.size(0), device=param.device)
-            penalty = penalty + torch.sum((wt_w - identity) ** 2)
+        if param.ndim == 2:
+            if 'in_proj_weight' in name:
+                for w in param.chunk(3, dim=0):
+                    wt_w = torch.matmul(w.t(), w)
+                    identity = torch.eye(wt_w.size(0), device=param.device)
+                    penalty = penalty + torch.sum((wt_w - identity) ** 2)
+            elif 'out_proj.weight' in name or 'q_proj_weight' in name or 'k_proj_weight' in name or 'v_proj_weight' in name:
+                wt_w = torch.matmul(param.t(), param)
+                identity = torch.eye(wt_w.size(0), device=param.device)
+                penalty = penalty + torch.sum((wt_w - identity) ** 2)
     return strength * penalty
 ```
 

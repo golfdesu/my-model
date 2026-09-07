@@ -2,12 +2,12 @@
 # coding: utf-8
 
 # # 00_tfm_custom_pytorch.py
-# Custom Encoder-Only Transformer in PyTorch for EV Charging Load Forecasting (L=96, H=48)
-# Base Architecture: 01_tfm_enc_pytorch.py (Vanilla Transformer - Vaswani et al., NIPS 2017)
+# Custom Encoder-Decoder Transformer in PyTorch for EV Charging Load Forecasting (L=96, H=48)
+# Base Architecture: 03_tfm_encdec_pytorch.py (Full Seq2Seq Transformer - Vaswani et al., NIPS 2017)
 #
 # Customization State:
-# - Active Custom Feature: Attention Weight Orthogonal Regularization (strength=1e-4, ||W^T W - I||_F^2)
-# - All other hyperparameters, embeddings, and architectures remain 100% identical to 01_tfm_enc_pytorch.py
+# - Architecture Paradigm: Full Encoder-Decoder Seq2Seq with Causal Masked Self-Attention and Cross-Attention
+# - Active Custom Feature: Attention Weight Orthogonal Regularization across Encoder, Decoder, and Cross-Attention
 # - See docs/00_custom_features_log.md for full customization backlog and activation roadmap.
 
 import sys
@@ -143,79 +143,127 @@ class PositionalEmbedding(nn.Module):
         return x + self.pe[:, :x.size(1), :]
 
 
-class EncoderOnlyTransformer(nn.Module):
+class EncoderDecoderTransformer(nn.Module):
     """
-    Encoder-Only Transformer identical to 01_tfm_tfm_pytorch.py
+    Custom Encoder-Decoder Seq2Seq Transformer for EV Charging Load Forecasting.
     Features:
-    - Feature Linear projection to d_model
-    - Fixed Sinusoidal Positional Encoding + Dropout
-    - TransformerEncoderLayer (batch_first=True, activation='relu')
-    - Dual Context Pooling Head (Concatenate last step + global average pooling)
-    - 2-layer MLP projection head (2*d_model -> 128 -> 64 -> horizon)
+    - Encoder: Feature Linear projection to d_model + Sinusoidal PE + TransformerEncoder
+    - Decoder: Zero placeholder query tokens + Sinusoidal PE + Causal Masked Self-Attention
+    - Cross-Attention: Decoder queries attend over Encoder temporal memory (query=dec, key=enc, value=enc)
+    - Output Head: Token-wise Linear projection (d_model -> 1) squeezed to [batch, horizon]
     """
-    def __init__(self, lookback, num_features, horizon, d_model=128, num_heads=4, d_ff=256, num_layers=1,
-                 dropout_rate=0.1):
+    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2,
+                 dropout_rate=0.05):
         super().__init__()
-        self.feature_proj = nn.Linear(num_features, d_model)
-        self.pos_emb = PositionalEmbedding(lookback, d_model)
-        self.dropout = nn.Dropout(dropout_rate)
+        self.lookback = lookback
+        self.horizon = horizon
+        self.d_model = d_model
+        self.num_layers = num_layers
+
+        # Encoder
+        self.enc_proj = nn.Linear(num_features, d_model)
+        self.pos_emb_enc = PositionalEmbedding(lookback, d_model)
+        self.drop_enc = nn.Dropout(dropout_rate)
 
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, 
-            nhead=num_heads, 
-            dim_feedforward=d_ff, 
-            dropout=dropout_rate, 
+            d_model=d_model,
+            nhead=num_heads,
+            dim_feedforward=d_ff,
+            dropout=dropout_rate,
             batch_first=True,
             activation='relu'
         )
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        # 2-Layer Projection Head (Identical to 01)
-        self.head_fc1 = nn.Linear(d_model * 2, 128)
-        self.head_dropout1 = nn.Dropout(dropout_rate)
-        self.head_fc2 = nn.Linear(128, 64)
-        self.head_dropout2 = nn.Dropout(dropout_rate)
-        self.out_proj = nn.Linear(64, horizon)
-        self.relu = nn.ReLU()
+        # Decoder
+        self.pos_emb_dec = PositionalEmbedding(horizon, d_model)
+        self.drop_dec = nn.Dropout(dropout_rate)
+
+        self.dec_attn = nn.ModuleList([
+            nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
+            for _ in range(num_layers)
+        ])
+        self.norm1_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
+
+        self.cross_attn = nn.ModuleList([
+            nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
+            for _ in range(num_layers)
+        ])
+        self.norm2_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
+
+        self.ffn_dec = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(d_model, d_ff),
+                nn.ReLU(),
+                nn.Dropout(dropout_rate),
+                nn.Linear(d_ff, d_model),
+                nn.Dropout(dropout_rate)
+            ) for _ in range(num_layers)
+        ])
+        self.norm3_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
+
+        # Token-wise linear projection head
+        self.out_head = nn.Linear(d_model, 1)
 
     def forward(self, x):
         # x: [batch, lookback, num_features]
-        x = self.feature_proj(x)
-        x = self.pos_emb(x)
-        x = self.dropout(x)
+        batch_size = x.size(0)
 
-        x = self.transformer_encoder(x)
+        # Encoder
+        enc_in = self.drop_enc(self.pos_emb_enc(self.enc_proj(x)))
+        enc_out = self.encoder(enc_in)
 
-        # Dual Feature Aggregation (Last step + Global Average Pooling)
-        last_step_feat = x[:, -1, :]
-        global_avg_feat = torch.mean(x, dim=1)
-        context = torch.cat([last_step_feat, global_avg_feat], dim=-1)
+        # Decoder initial context (zero placeholder query tokens for forecast horizon)
+        dec_in = torch.zeros(batch_size, self.horizon, self.d_model, device=x.device)
+        dec = self.drop_dec(self.pos_emb_dec(dec_in))
 
-        x = self.relu(self.head_fc1(context))
-        x = self.head_dropout1(x)
-        x = self.relu(self.head_fc2(x))
-        x = self.head_dropout2(x)
-        out = self.out_proj(x)
+        causal_mask = torch.triu(
+            torch.full((self.horizon, self.horizon), float('-inf'), device=x.device),
+            diagonal=1
+        )
+
+        for i in range(self.num_layers):
+            dec_attn_out, _ = self.dec_attn[i](dec, dec, dec, attn_mask=causal_mask)
+            dec = self.norm1_dec[i](dec + self.drop_dec(dec_attn_out))
+
+            cross_attn_out, _ = self.cross_attn[i](query=dec, key=enc_out, value=enc_out)
+            dec = self.norm2_dec[i](dec + self.drop_dec(cross_attn_out))
+
+            ffn_out = self.ffn_dec[i](dec)
+            dec = self.norm3_dec[i](dec + ffn_out)
+
+        out = self.out_head(dec).squeeze(-1)  # [batch, horizon]
         return out
 
 
 # ==============================================================================
 # 4. Custom Feature: Attention Orthogonal Regularization
 # ==============================================================================
-def compute_orthogonal_penalty(model, strength=4.57266747504827e-06):
+def compute_orthogonal_penalty(model, strength=1e-5):
     """
     [ACTIVE CUSTOM FEATURE]
     Penalizes weight matrices that deviate from orthogonality: strength * ||W^T W - I||_F^2
-    Applied to attention projection weights to reduce condition number and mitigate head collapse.
+    Applied to:
+    1. Encoder Self-Attention projection weights (W_Q, W_K, W_V, W_O)
+    2. Decoder Masked Self-Attention projection weights (W_Q, W_K, W_V, W_O)
+    3. Decoder Cross-Attention projection weights (W_Q, W_K, W_V, W_O)
+    Reduces condition number, mitigates head collapse, and enforces diverse subspace projections.
     """
     if strength <= 0.0:
         return torch.tensor(0.0, device=device)
     penalty = torch.tensor(0.0, device=device)
     for name, param in model.named_parameters():
-        if ('in_proj_weight' in name or 'out_proj.weight' in name) and param.ndim == 2:
-            wt_w = torch.matmul(param.t(), param)
-            identity = torch.eye(wt_w.size(0), device=param.device)
-            penalty = penalty + torch.sum((wt_w - identity) ** 2)
+        if param.ndim == 2:
+            if 'in_proj_weight' in name:
+                # MultiheadAttention packs Q, K, V along dim 0: shape [3 * d_model, d_model]
+                for w in param.chunk(3, dim=0):
+                    wt_w = torch.matmul(w.t(), w)
+                    identity = torch.eye(wt_w.size(0), device=param.device)
+                    penalty = penalty + torch.sum((wt_w - identity) ** 2)
+            elif 'out_proj.weight' in name or 'q_proj_weight' in name or 'k_proj_weight' in name or 'v_proj_weight' in name:
+                wt_w = torch.matmul(param.t(), param)
+                identity = torch.eye(wt_w.size(0), device=param.device)
+                penalty = penalty + torch.sum((wt_w - identity) ** 2)
     return strength * penalty
 
 
@@ -250,28 +298,32 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 128   # Identical to 01
+BATCH_SIZE = 64    # Seq2Seq optimal batch size
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Identical to 01 optimal config)
-D_MODEL             = 128
+# Hyperparameters (Matching Seq2Seq optimal baseline 03)
+D_MODEL             = 64
 NUM_HEADS           = 4
-D_FF                = 256
-NUM_LAYERS          = 1
-DROPOUT_RATE        = 0.1
-LEARNING_RATE       = 0.0006412589172202276
-WEIGHT_DECAY        = 4.7084742858033325e-05
+D_FF                = 128
+NUM_LAYERS          = 2
+DROPOUT_RATE        = 0.05
+LEARNING_RATE       = 0.00032030989447217294
+WEIGHT_DECAY        = 2.346586192695657e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
-# Custom Regularization Hyperparameter (Optimal value from Optuna 1D HPO: Trial 25, Val Loss: 0.00300578)
-ATTN_ORTHOGONAL_REG = 4.57266747504827e-06
+# Custom Regularization Hyperparameter (Attention Orthogonal Regularization Strength)
+ATTN_ORTHOGONAL_REG = 1e-5
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
     "model_name": "00_tfm_custom_pytorch",
-    "base_model": "01_tfm_enc_pytorch",
-    "active_custom_features": ["attention_orthogonal_regularization"],
+    "architecture_paradigm": "encoder_decoder_seq2seq",
+    "base_model": "03_tfm_encdec_pytorch",
+    "active_custom_features": [
+        "encoder_decoder_cross_attention",
+        "attention_orthogonal_regularization"
+    ],
     "attn_orthogonal_reg_strength": ATTN_ORTHOGONAL_REG,
     "seeds": {},
     "summary": {}
@@ -312,7 +364,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
     test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-    model = EncoderOnlyTransformer(
+    model = EncoderDecoderTransformer(
         lookback=LOOKBACK,
         num_features=X_train_scaled.shape[1],
         horizon=HORIZON,
