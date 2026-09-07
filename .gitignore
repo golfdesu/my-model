@@ -2,9 +2,11 @@
 /*
 !/**/
 
-# 2. Whitelist numbered experiment scripts and environment dependencies
+# 2. Whitelist numbered experiment scripts, tools, and environment dependencies
 ![0-9]*
 !**/[0-9]*
+!tools/
+!tools/**
 !requirements.txt
 !.gitignore
 !AGENTS.md
@@ -24,12 +26,19 @@ __pycache__/
 
 .venv/
 **/.venv/**
+
+# 5. Local documentation, traces, configs, and logs
+.agents/
+.wikiskill/
+archive/
+configs/
+docs/
 logs/
+plots/
 
-
-# 5. Benchmark results and model artifacts
-!*_results.json
-!*_predictions.npz
-!*_best.pt
+# 6. Benchmark results and model artifacts
+*_results.json
+*_predictions.npz
+*_best.pt
 outputs/
 outputs/**
