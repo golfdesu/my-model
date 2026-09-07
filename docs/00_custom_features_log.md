@@ -11,7 +11,7 @@
 | รายการ | การตั้งค่าปัจจุบันใน `00_tfm_custom_pytorch.py` | เปรียบเทียบกับโมเดล 03 (Seq2Seq Baseline) |
 | :--- | :--- | :--- |
 | **Architecture Paradigm** | **Full Encoder-Decoder Seq2Seq with Cross-Attention** | เหมือน 03 (มี Cross-Attention เชื่อมโยงอดีตสู่ขอบเขตการพยากรณ์) |
-| **Active Custom Feature** | **Attention Weight Orthogonal Regularization** ($\lambda = 1.0 \times 10^{-5}$) | 03 ไม่มี (เพิ่มเข้ามาเฉพาะใน 00 เพื่อคุม Self & Cross-Attention) |
+| **Active Custom Feature** | **Attention Weight Orthogonal Regularization** ($\lambda \approx 0.00964$) | 03 ไม่มี (เพิ่มเข้ามาเฉพาะใน 00 เพื่อคุม Self & Cross-Attention) |
 | **Positional Encoding** | Fixed Sinusoidal Positional Embedding ($L=96, H=48$) | เหมือน 03 (100%) |
 | **Input Noise** | None (ไม่มีการใส่ Gaussian Noise) | เหมือน 03 (100%) |
 | **Architecture Topology** | $d_{\text{model}}=64$, $\text{heads}=4$, $d_{\text{ff}}=128$, $\text{layers}=2$, $\text{dropout}=0.05$ | เหมือน 03 (100%) |
@@ -126,4 +126,5 @@ def compute_orthogonal_penalty(model, strength=1e-5):
 | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :--- |
 | **01 (Baseline)** | Benchmark | Vanilla Transformer (ไม่มี Custom) | - | - | - | - | ค่ามาตรฐาน Vaswani 2017 (Val Loss = 0.003087) |
 | **00 (HPO)** | 2026-09-05 | 1D Optuna Search (50 trials, 30 epochs) -> $\lambda^* = 4.5727 \times 10^{-6}$ | Val Loss = 0.003006 | - | - | - | ชนะโมเดล 01 (Trial 25, Val Loss ดีกว่า 01) |
-| **00 (Benchmark)** | 2026-09-05 | 10-Seed Benchmark ด้วย $\lambda^* = 4.5727 \times 10^{-6}$ | *พร้อมรัน* | *พร้อมรัน* | *พร้อมรัน* | *พร้อมรัน* | สั่งรันผ่าน run_benchmark_00.sbatch บน H100 |
+| **00 (HPO Seq2Seq)** | 2026-09-07 | 1D Optuna Search บน Seq2Seq (`acn_caltech_ready2.csv`) -> $\lambda^* = 0.0096398$ | Val Loss = 0.0029216 | - | - | - | ชนะ 03 (Trial 37, Val Loss ดีขึ้นอย่างมีนัยสำคัญ) |
+| **00 (Benchmark)** | 2026-09-07 | 10-Seed Benchmark ด้วย Seq2Seq + $\lambda^* = 0.0096398$ | *พร้อมรัน* | *พร้อมรัน* | *พร้อมรัน* | *พร้อมรัน* | 10 เมล็ดสุ่มบน H100 |

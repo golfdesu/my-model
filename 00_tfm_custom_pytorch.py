@@ -313,7 +313,7 @@ PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameter (Attention Orthogonal Regularization Strength)
-ATTN_ORTHOGONAL_REG = 1e-5
+ATTN_ORTHOGONAL_REG = 0.009639757903159522
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
