@@ -273,6 +273,7 @@ steps_to_eval = [0, 5, 11, 47]
 step_labels = {0: 'Step 0 (30 min)', 5: 'Step 5 (3 hr)', 11: 'Step 11 (6 hr)', 47: 'Step 47 (24 hr)'}
 
 def run_benchmark():
+    global results_data, all_seed_metrics, all_predictions, best_overall_val_loss, best_seed_id
     print('Pre-building sequence tensors...')
     X_train_t, y_train_t, _, _ = create_windowed_tensors(X_train_scaled, y_train_scaled, LOOKBACK, HORIZON)
     X_val_t, y_val_t, _, _     = create_windowed_tensors(X_val_scaled, y_val_scaled, LOOKBACK, HORIZON)
