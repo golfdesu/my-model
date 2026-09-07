@@ -78,12 +78,9 @@ def get_family_info(model_name):
 def find_result_files(search_paths):
     files = set()
     for base in search_paths:
-        # Check outputs/*/*_results.json
-        files.update(glob.glob(os.path.join(base, "outputs", "*", "*_results.json")))
-        # Check root *_results.json
+        # Check recursively for *_results.json
+        files.update(glob.glob(os.path.join(base, "**", "*_results.json"), recursive=True))
         files.update(glob.glob(os.path.join(base, "*_results.json")))
-        # Check outputs/*.json
-        files.update(glob.glob(os.path.join(base, "outputs", "*_results.json")))
 
     # Deduplicate by model_name
     models_dict = {}
@@ -153,6 +150,32 @@ def extract_model_summary(model_name, filepath, data):
     row["step_48_mae"] = step_48
 
     return row
+
+def extract_seeds_records(model_name, filepath, data):
+    seeds = data.get("seeds", {})
+    config = data.get("config", {})
+    params_count = data.get("total_parameters", config.get("total_parameters", None))
+    family, _ = get_family_info(model_name)
+
+    metrics_to_read = ['mae', 'rmse', 'r2', 'wape', 'mape', 'mae_peak', 'wape_peak', 'bias', 'negative_pct', 'training_time_seconds', 'peak_gpu_memory_mb']
+    seed_rows = []
+    for s_id, sdata in seeds.items():
+        omet = sdata.get("overall_metrics", {})
+        row = {
+            "model_name": model_name,
+            "seed": int(s_id) if str(s_id).isdigit() else s_id,
+            "family": family,
+            "total_parameters": params_count,
+        }
+        for m in metrics_to_read:
+            val = None
+            if m in omet and omet[m] is not None and not np.isnan(omet[m]):
+                val = float(omet[m])
+            elif m in sdata and sdata[m] is not None and not np.isnan(sdata[m]):
+                val = float(sdata[m])
+            row[m] = val
+        seed_rows.append(row)
+    return seed_rows
 
 def generate_markdown_table(df, sort_by="mae_mean"):
     df_sorted = df.sort_values(by=sort_by, ascending=True).reset_index(drop=True)
@@ -354,9 +377,11 @@ def main():
     print(f"Discovered {len(result_files)} unique model benchmark results.")
 
     rows = []
+    seed_rows_all = []
     for model_name, (fpath, data) in result_files.items():
         row = extract_model_summary(model_name, fpath, data)
         rows.append(row)
+        seed_rows_all.extend(extract_seeds_records(model_name, fpath, data))
 
     df = pd.DataFrame(rows)
 
@@ -365,6 +390,14 @@ def main():
     export_cols = [c for c in df.columns if c not in ["step_48_mae", "color"]]
     df[export_cols].sort_values(by=args.sort_by, ascending=True).to_csv(csv_path, index=False)
     print(f"[Saved] CSV Summary: {csv_path}")
+
+    # Save Per-Seed CSV
+    if seed_rows_all:
+        df_seeds = pd.DataFrame(seed_rows_all)
+        df_seeds = df_seeds.sort_values(by=["model_name", "seed"], ascending=[True, True])
+        seeds_csv_path = os.path.join(args.out_dir, "benchmark_seeds.csv")
+        df_seeds.to_csv(seeds_csv_path, index=False)
+        print(f"[Saved] Per-Seed CSV: {seeds_csv_path} ({len(df_seeds)} rows)")
 
     # Generate Markdown Table
     md_content = generate_markdown_table(df, sort_by=args.sort_by)
