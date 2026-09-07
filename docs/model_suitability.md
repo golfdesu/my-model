@@ -196,14 +196,15 @@ The mean load decreases by ~61% across the observation window, indicating a stro
 
 ---
 
-### 3.9 PatchTST ✅✅ Strong
+### 3.9 PatchTST ⚠️ Limited / Architecture Mismatch (Empirical Finding)
 
-**Specific advantages:**
-- **Patch-based tokenization** (patch_len=16, stride=8) converts the 96-step lookback into ~11 non-overlapping local segments, reducing sequence length fed to the Transformer encoder
-- **Channel-independent** (CI) encoding processes each of the 30 input features independently before combining — reduces parameter count while maintaining representation quality
-- **RevIN** instance normalization directly counteracts non-stationarity at inference time by normalizing per sample
+**Initial Expectation vs Empirical Benchmark Reality (Rank 20 / 32):**
+- **Patch-based tokenization** efficiently reduces temporal tokens ($L=96 \rightarrow 23$ patches with $P=8, S=4$).
+- **Empirical Failure (MAE $5.7672 \text{ kW}$, $R^2=0.5531$, Peak MAE $18.7351 \text{ kW}$):**
+  1. **Channel Independence (CI) Blindspot**: By isolating each variable, PatchTST cannot cross-attend between `kWhDelivered` and calendar/weather features (`Hour_sin/cos`, `DayOfWeek`, `temp`). For human-driven EV charging sessions, this makes the target series blind to behavioral drivers.
+  2. **RevIN Scaling Trap on Intermittent Data**: RevIN normalizes by the lookback mean/std. In EV load, the difference between lookback and future mean reaches up to $22.58 \text{ kW}$ ($5.13 \text{ kW}$ on average). If lookback falls in a zero-load night, RevIN suppresses the denormalized daytime peak, causing severe peak under-prediction.
 
-> **Role:** Expected to perform strongly given its explicit handling of both non-stationarity (RevIN) and computational efficiency (patch tokenization) — two of the main challenges identified in this dataset.
+> **Role in Thesis:** Serves as a major **empirical counter-example** demonstrating that the popular Channel Independence and RevIN paradigms of Nie et al. (ICLR 2023) fail on intermittent, human-driven EV charging load compared to cross-variate architectures like Model 00 (Proposed Custom Transformer) and Model 07 (iTransformer).
 
 ---
 

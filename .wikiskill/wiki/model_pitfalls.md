@@ -49,4 +49,38 @@
 
 ## 6. Architecture Class Name Parity & Aliases
 - **Pitfall**: Defining `class ModelName(nn.Module):` but referencing `model = ModelNameModel(...)` in benchmark `run_seed` causes `NameError: name 'ModelNameModel' is not defined`.
-- **Rule**: Always verify instantiation matches class name exactly, and provide explicit aliases (e.g., `NHiTSModel = NHiTS`) when backward compatibility is helpful.\n
+- **Rule**: Always verify instantiation matches class name exactly, and provide explicit aliases (e.g., `NHiTSModel = NHiTS`) when backward compatibility is helpful.
+
+---
+
+## 7. Architecture Incompatibility on Intermittent EV Charging Load
+
+Based on the 32-model 10-seed production benchmark on Caltech ACN load ($L=96, H=48$):
+
+### Pitfall 7.1: Channel Independence (CI) & RevIN on Exogenous-Driven Intermittent Load
+- **Models**: `06_tfm_ptst` (PatchTST).
+- **Pitfall**:
+  1. *Channel Independence*: Isolating the target series prevents cross-attention with calendar (`Hour_sin/cos`, `DayOfWeek`) and weather (`temp`, `rhum`) features. EV load cannot be forecasted reliably without human behavioral context.
+  2. *RevIN Distortion*: Normalizing by lookback mean and std breaks when lookback mean is near zero (night) but future mean is peak (daytime). Lookback vs future mean differs by up to 22.58 kW, trapping denormalized predictions near zero ($R^2=0.5531$, Peak MAE=18.74 kW).
+- **Rule**: Never rely on pure channel-independent architectures without cross-variate attention for human-driven EV charging load.
+
+### Pitfall 7.2: Linear Decomposition & Last-Value Normalization on Pulse Spikes
+- **Models**: `11_dlinear`, `12_nlinear`, `25_tide`.
+- **Pitfall**:
+  1. *DLinear Moving Average*: Kernel smoothing strips sharp burst charging spikes, and 1-layer linear mapping fails to capture non-linear charging curves ($R^2=0.4325$, Horizon Deg +171.7%).
+  2. *NLinear Last-Value Offset*: Subtracting and adding $X_{-1}$ forces day forecasts to start from night zero-baseline, or night forecasts to start from daytime peak, causing catastrophic peak error (Peak MAE=21.40 kW, worst in benchmark).
+  3. *TiDE Dense MLP*: Linear decoding deteriorates by +172.7% over 48 steps without temporal attention.
+- **Rule**: Avoid linear models that rely on stationarity or moving average smoothing on stochastic pulse loads.
+
+### Pitfall 7.3: Phase Correlation & Basis Expansion Ringing on Discontinuous Pulses
+- **Models**: `05_tfm_afm` (Autoformer), `26_nbeats` (N-BEATS), `08_tfm_timesnet` (TimesNet).
+- **Pitfall**:
+  1. *Auto-Correlation (FFT)*: Assumes repetitive identical waveform phases; smooths stochastic charging pulses into sinusoidal waves, yielding 22.89% negative predictions.
+  2. *Fourier & Polynomial Basis*: Fourier harmonic expansion on steep discontinuous step loads triggers Gibbs phenomenon (ringing artifacts and large over/undershoots, $R^2=0.5478$).
+  3. *2D Periodicity Folding*: 2D Inception convolutions on folded 1D series introduce spatial smearing artifacts across days.
+- **Rule**: Prefer point-wise and cross-variate attention architectures over frequency-domain phase matching on non-smooth load data.
+
+### Pitfall 7.4: Overparameterization & Multi-Stream Overhead on Short Lookback
+- **Models**: `31_scinet` (18.37M params, Rank 24), `15_timemachine` (428s/seed, Rank 18).
+- **Pitfall**: Excessive parameter scaling (18.37M params) or quadruple Mamba state-space scanning yields no accuracy benefit over compact architectures (e.g. Model 00: 180k params, 38s/seed, Rank 13).
+- **Rule**: Cap parameter budget and avoid redundant multi-directional scans for sequence lengths $L \le 96$.\n
