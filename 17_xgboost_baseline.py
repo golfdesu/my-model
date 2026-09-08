@@ -39,7 +39,7 @@ except Exception:
 # ---------------------------------------------------------------
 # Data Loading & Preprocessing (same path auto-detect and split as other scripts)
 # ---------------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -168,13 +168,13 @@ XGB_PARAMS = dict(
     objective='reg:squarederror',
     eval_metric='mae',
     n_estimators=1000,
-    learning_rate=0.05808381432960484,
-    max_depth=4,            # XGBoost uses max_depth rather than LightGBM's num_leaves
-    min_child_weight=7.096220622166763,
-    subsample=0.6648958679659673,
-    colsample_bytree=0.5617104625598865,
-    reg_alpha=0.0008553664409816912,
-    reg_lambda=0.27861143653900455,
+    learning_rate=0.011568743117514452,
+    max_depth=8,            # XGBoost uses max_depth rather than LightGBM's num_leaves
+    min_child_weight=4.660611303871455,
+    subsample=0.9853565008753886,
+    colsample_bytree=0.5518638632727147,
+    reg_alpha=0.0027318933993886727,
+    reg_lambda=0.05411578417025447,
     random_state=42,
     n_jobs=-1,
     tree_method='hist',     # fast histogram-based method, comparable to LightGBM's default

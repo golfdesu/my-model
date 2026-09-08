@@ -40,7 +40,7 @@ except Exception:
 # ---------------------------------------------------------------
 # Data Loading & Preprocessing (same path auto-detect as other scripts)
 # ---------------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -75,8 +75,8 @@ HORIZON = 48      # 24 hours forecast (48 * 30 min)
 SEASONAL_PERIOD = 48   # 1 day = 48 half-hour steps (daily seasonality)
 
 # SARIMA order - a reasonable default; can be tuned further with grid search / auto_arima if needed
-ORDER = (0, 1, 1)
-SEASONAL_ORDER = (1, 0, 1, SEASONAL_PERIOD)
+ORDER = (0, 0, 2)
+SEASONAL_ORDER = (0, 0, 0, SEASONAL_PERIOD)
 
 output_json_filename = "19_sarima_baseline_results.json"
 results_data = {

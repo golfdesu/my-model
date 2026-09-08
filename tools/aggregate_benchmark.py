@@ -188,7 +188,7 @@ def generate_markdown_table(df, sort_by="mae_mean"):
     lines = [
         "# Comprehensive Benchmark Results (10-Seed Average)",
         "",
-        "> Dataset: `acn_caltech_ready2.csv` (Lookback $L=96$, Horizon $H=48$)",
+        "> Dataset: `acn_jpl_ready.csv` (Lookback $L=96$, Horizon $H=48$)",
         f"> Sorted by: `{sort_by}` (Lowest is Best)",
         "",
         "| Rank | Model Architecture | Family | MAE (kWh) ↓ | RMSE (kWh) ↓ | WAPE (%) ↓ | Peak MAE ↓ | R² ↑ | Params | Time (s) |",

@@ -60,7 +60,7 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -315,7 +315,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
 
     model = TimesNetModel(
         lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON,
-        d_model=32, d_ff=128, num_layers=3, top_k=4, num_kernels=4, dropout_rate=0.2
+        d_model=32, d_ff=64, num_layers=1, top_k=3, num_kernels=6, dropout_rate=0.3
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -323,7 +323,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         print(f"Model Parameters: {total_params:,}")
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0011311694756729275, weight_decay=0.000697139666328406)
+    optimizer = optim.Adam(model.parameters(), lr=0.0032434840372010266, weight_decay=0.000706180225324365)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs           = 200

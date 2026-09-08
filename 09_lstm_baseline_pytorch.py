@@ -59,7 +59,7 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # Load and clean dataset (Local path auto-detect for VS Code)
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -237,12 +237,12 @@ def run_benchmark():
         test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
         # Build Model
-        model = LSTMBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, num_layers=1, dropout_rate=0.05).to(device)
+        model = LSTMBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, num_layers=3, dropout_rate=0.05).to(device)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         results_data["total_parameters"] = total_params
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.0003824284385442332, weight_decay=2.8039822000297003e-05)
+        optimizer = optim.Adam(model.parameters(), lr=0.0038858995026663148, weight_decay=9.129779475765353e-05)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
         # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)

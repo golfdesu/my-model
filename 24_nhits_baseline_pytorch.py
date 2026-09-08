@@ -89,9 +89,9 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing (Scientific Invariants)
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready2.csv'
+    data_path = 'data_cleaned/acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -366,15 +366,14 @@ CONFIG = {
     "num_features": num_total_features,
     "horizon": HORIZON,
     "pooling_sizes": [8, 4, 1],
-    "n_layers": 3,
+    "n_layers": 2,
     "hidden_dim": 256,
-    "dropout": 0.05,
-    "learning_rate": 0.00011058500546306239,
-    "weight_decay": 1.0327089770662047e-06,
-    "batch_size": 256,
+    "dropout": 0.15,
+    "learning_rate": 0.0002291422432821236,
+    "weight_decay": 0.00019105121413617222,
+    "batch_size": 128,
     "epochs": 100,
-    "patience": 12
-}
+    "patience": 12}
 
 def run_seed(seed):
     torch.manual_seed(seed)

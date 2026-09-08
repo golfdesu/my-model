@@ -58,7 +58,7 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # Load and clean dataset (Local path auto-detect)
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -291,11 +291,11 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
     test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-    model = TimeMachineModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=32, d_state=8, num_layers=1, dropout_rate=0.1).to(device)
+    model = TimeMachineModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=32, d_state=8, num_layers=1, dropout_rate=0.2).to(device)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     results_data["total_parameters"] = total_params
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0004199170815720567, weight_decay=3.296534470000322e-05)
+    optimizer = optim.Adam(model.parameters(), lr=0.0004994771893035688, weight_decay=8.120449103577722e-05)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs = 200

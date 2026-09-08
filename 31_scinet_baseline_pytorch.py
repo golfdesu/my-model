@@ -61,13 +61,13 @@ if __name__ == '__main__':
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing
 # ---------------------------------------------------------
-data_path = 'data_cleaned/acn_caltech_ready2.csv'
+data_path = 'data_cleaned/acn_jpl_ready.csv'
 if not os.path.exists(data_path):
-    data_path = '../data_cleaned/acn_caltech_ready2.csv'
+    data_path = '../data_cleaned/acn_jpl_ready.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_caltech_ready2.csv'
+    data_path = '../../data_cleaned/acn_jpl_ready.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready2.csv'
+    data_path = 'acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -298,16 +298,15 @@ CONFIG = {
     "lookback": LOOKBACK,
     "num_features": num_total_features,
     "horizon": HORIZON,
-    "d_model": 256,
-    "num_levels": 3,
-    "kernel_size": 5,
+    "d_model": 128,
+    "num_levels": 4,
+    "kernel_size": 3,
     "dropout": 0.2,
-    "learning_rate": 0.0010508421338691768,
-    "weight_decay": 3.972110727381911e-06,
-    "batch_size": 128,
+    "learning_rate": 0.00040954812969068986,
+    "weight_decay": 0.00015224452150288816,
+    "batch_size": 64,
     "epochs": 200,
-    "patience": 15
-}
+    "patience": 15}
 
 def run_seed(seed):
     random.seed(seed)

@@ -61,7 +61,7 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -207,7 +207,7 @@ import time
 
 LOOKBACK   = 96
 HORIZON    = 48
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 output_json_filename = "07_tfm_itfm_pytorch_results.json"
 results_data = {
@@ -255,7 +255,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
 
     model = iTransformerModel(
         lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON,
-        d_model=32, num_heads=4, d_ff=128, num_layers=3, dropout_rate=0.15
+        d_model=128, num_heads=2, d_ff=256, num_layers=3, dropout_rate=0.1
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -263,7 +263,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         print(f"Model Parameters: {total_params:,}")
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0017708585791417803, weight_decay=1.7209491444104483e-06)
+    optimizer = optim.Adam(model.parameters(), lr=0.00017962500067033094, weight_decay=3.2496313436217845e-06)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs          = 200

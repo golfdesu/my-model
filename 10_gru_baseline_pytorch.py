@@ -58,7 +58,7 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # Load and clean dataset (Local path auto-detect)
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -185,7 +185,7 @@ import time
 # Config Parameters
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 output_json_filename = "10_gru_baseline_pytorch_results.json"
 results_data = {
@@ -233,12 +233,12 @@ def run_benchmark():
         test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
         # Build Model
-        model = GRUBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, num_layers=1, dropout_rate=0.05).to(device)
+        model = GRUBaseline(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, num_layers=3, dropout_rate=0.1).to(device)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         results_data["total_parameters"] = total_params
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.00016416177070654978, weight_decay=2.0782842681178182e-06)
+        optimizer = optim.Adam(model.parameters(), lr=0.0013353819088790589, weight_decay=1.7654048052495086e-05)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
         # Training Loop with Early Stopping & Single Outer tqdm Progress Bar
