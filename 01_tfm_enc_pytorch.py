@@ -212,7 +212,7 @@ import time
 # Config Parameters
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 256
+BATCH_SIZE = 64
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 output_json_filename = "01_tfm_enc_pytorch_results.json"
 results_data = {
@@ -259,12 +259,12 @@ def run_benchmark():
         val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
         test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-        model = EncoderOnlyTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=128, num_heads=4, d_ff=512, num_layers=1, dropout_rate=0.05).to(device)
+        model = EncoderOnlyTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=128, num_heads=2, d_ff=512, num_layers=1, dropout_rate=0.1).to(device)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         results_data["total_parameters"] = total_params
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.0007235541298283105, weight_decay=0.0001081307324188371)
+        optimizer = optim.Adam(model.parameters(), lr=0.00047330128560354453, weight_decay=0.00015039504742303124)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
         # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)

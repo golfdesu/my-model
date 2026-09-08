@@ -298,17 +298,17 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 64    # Seq2Seq optimal batch size
+BATCH_SIZE = 128    # Seq2Seq optimal batch size
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
 # Hyperparameters (Matching Seq2Seq optimal baseline 03)
-D_MODEL             = 64
-NUM_HEADS           = 4
-D_FF                = 128
+D_MODEL             = 128
+NUM_HEADS           = 8
+D_FF                = 512
 NUM_LAYERS          = 2
-DROPOUT_RATE        = 0.05
-LEARNING_RATE       = 0.00032030989447217294
-WEIGHT_DECAY        = 2.346586192695657e-06
+DROPOUT_RATE        = 0.1
+LEARNING_RATE       = 0.0006097839109531517
+WEIGHT_DECAY        = 3.972110727381911e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
