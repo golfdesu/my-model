@@ -410,22 +410,25 @@ def run_seed(seed):
     val_loss_history = []
     best_epoch = 1
 
-    for epoch in range(CONFIG["epochs"]):
+    epoch_pbar = tqdm(range(1, CONFIG["epochs"] + 1), desc=f"Seed {seed} Training", leave=True)
+    for epoch in epoch_pbar:
         train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
         val_loss, _, _ = evaluate(model, val_loader, criterion, device)
         scheduler.step(val_loss)
 
         train_loss_history.append(float(train_loss))
         val_loss_history.append(float(val_loss))
+        epoch_pbar.set_postfix({'train_loss': f"{train_loss:.5f}", 'val_loss': f"{val_loss:.5f}"})
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            best_epoch = epoch + 1
+            best_epoch = epoch
             best_weights = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             patience_counter = 0
         else:
             patience_counter += 1
             if patience_counter >= CONFIG["patience"]:
+                epoch_pbar.write(f"Early stopping triggered at epoch {epoch}. Best Val Loss: {best_val_loss:.6f}")
                 break
 
     if best_weights is not None:
