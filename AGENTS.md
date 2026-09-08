@@ -135,6 +135,8 @@ The project targets both local development (Windows / CPU / CUDA) and the **Eraw
   - Prebuilt Linux wheels from PyPI lack the CUDA Tree Learner. Enforce `device='cpu'`, `n_jobs=-1`, and `max_bin=128`.
 - **Trap 3: XGBoost runs with native CUDA GPU**:
   - XGBoost on Linux has full CUDA support. Enforce `tree_method='hist'`, `'device': 'cuda'`.
+- **Trap 4: SLURM Partition Mapping (`gpu-h100`)**:
+  - The H100 node (`compute4`) belongs strictly to partition **`gpu-h100`** (up to 5 days timelimit). Do NOT request `--partition=gpu` or `mixed` with `compute4`, as SLURM will reject the job with `Requested node configuration is not available`.
 - **H100 Speed Optimization Checklist**:
   ```python
   if device.type == 'cuda':
