@@ -211,14 +211,14 @@ def compute_orthogonal_penalty(model, strength):
 # ==============================================================================
 # 3. 1D Optuna Objective (Locking Architecture to 03 Seq2Seq Baseline)
 # ==============================================================================
-LOCKED_D_MODEL       = 64
-LOCKED_NUM_HEADS     = 4
-LOCKED_D_FF          = 128
+LOCKED_D_MODEL       = 128
+LOCKED_NUM_HEADS     = 8
+LOCKED_D_FF          = 512
 LOCKED_NUM_LAYERS    = 2
-LOCKED_DROPOUT       = 0.05
-LOCKED_LR            = 0.00032030989447217294
-LOCKED_WEIGHT_DECAY  = 2.346586192695657e-06
-LOCKED_BATCH_SIZE    = 64
+LOCKED_DROPOUT       = 0.1
+LOCKED_LR            = 0.0006097839109531517
+LOCKED_WEIGHT_DECAY  = 3.972110727381911e-06
+LOCKED_BATCH_SIZE    = 128
 
 def objective(trial):
     # Sole hyperparameter to optimize: Attention Orthogonal Regularization Strength
