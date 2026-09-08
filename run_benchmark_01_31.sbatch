@@ -8,8 +8,7 @@
 #SBATCH --job-name=bench_seq_01_31_h100
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.out
-#SBATCH --partition=gpu
-#SBATCH --nodelist=compute4
+#SBATCH --partition=gpu-h100
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
