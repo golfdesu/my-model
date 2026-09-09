@@ -4,14 +4,14 @@
 """
 organize_no_weather_results.py
 Moves benchmark artifacts (*_results.json, *_best.pt, *_predictions.npz)
-from the root directory into outputs/acn_jpn_no_weather/<model_name>/.
+from the root directory into outputs/acn_caltech_no_weather/<model_name>/.
 """
 
 import os
 import glob
 import shutil
 
-TARGET_DIR = os.path.join("outputs", "acn_jpn_no_weather")
+TARGET_DIR = os.path.join("outputs", "acn_caltech_no_weather")
 
 def organize():
     os.makedirs(TARGET_DIR, exist_ok=True)

@@ -89,10 +89,10 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing (Scientific Invariants)
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_jpl_ready.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 if not os.path.exists(data_path):
     # Fallback to local path if running from different subdirectory
-    data_path = 'data_cleaned/acn_jpl_ready.csv'
+    data_path = 'data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -458,7 +458,7 @@ class MFTModel(nn.Module):
 # ---------------------------------------------------------
 LOOKBACK   = 96
 HORIZON    = 48
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 SEEDS      = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
 MODEL_NAME = "20_tfm_mft_pytorch"
@@ -523,12 +523,12 @@ def run_benchmark():
             horizon=HORIZON,
             target_idx=TARGET_CH_IDX,
             base_weights=fam_base_weights,
-            d_model=32,
+            d_model=64,
             num_heads=8,
-            d_ff=64,
-            num_layers=2,
+            d_ff=256,
+            num_layers=1,
             decoder_hidden_dim=128,
-            dropout_rate=0.05
+            dropout_rate=0.10
         ).to(device)
 
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -537,7 +537,7 @@ def run_benchmark():
             results_data["total_parameters"] = total_params
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.000986939833759608, weight_decay=2.0367801761513443e-05)
+        optimizer = optim.Adam(model.parameters(), lr=0.0009910830792008707, weight_decay=3.7357716213410245e-06)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
         epochs = 200

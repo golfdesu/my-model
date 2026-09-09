@@ -61,7 +61,7 @@ if device.type == "cuda":
 # ---------------------------------------------------------
 # 1. Univariate Data Loading & Preprocessing
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_jpl_ready.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -249,7 +249,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         print(f"Model Parameters: {total_params:,}  (NLinear: minimal by design)")
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0008889429075192758, weight_decay=0.00013427642532770512)
+    optimizer = optim.Adam(model.parameters(), lr=0.0007436705882390548, weight_decay=6.408391359387875e-05)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs           = 200

@@ -88,9 +88,9 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing (Scientific Invariants)
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_jpl_ready.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpl_ready.csv'
+    data_path = 'data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -348,20 +348,21 @@ CONFIG = {
     "lookback": LOOKBACK,
     "num_features": num_total_features,
     "horizon": HORIZON,
-    "cnn_channels": 32,
-    "kernel_size": 5,
-    "lstm_hidden": 32,
-    "lstm_layers": 1,
+    "cnn_channels": 64,
+    "kernel_size": 3,
+    "lstm_hidden": 128,
+    "lstm_layers": 2,
     "d_model": 128,
-    "n_heads": 4,
+    "n_heads": 8,
     "d_ff": 512,
-    "tfm_layers": 1,
-    "dropout": 0.2,
-    "learning_rate": 0.001493155292930546,
-    "weight_decay": 0.0002682844682308789,
+    "tfm_layers": 2,
+    "dropout": 0.05,
+    "learning_rate": 0.00016109123824818532,
+    "weight_decay": 1.752318043730273e-05,
     "batch_size": 128,
     "epochs": 100,
-    "patience": 12}
+    "patience": 12
+}
 
 def run_seed(seed):
     torch.manual_seed(seed)

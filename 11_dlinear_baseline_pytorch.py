@@ -71,7 +71,7 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # Load and clean dataset (Local path auto-detect for VS Code)
-data_path = '../data_cleaned/acn_jpl_ready.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -223,7 +223,7 @@ import time
 # Config Parameters (identical to other model scripts)
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-KERNEL_SIZE = 25   # moving-average decomposition kernel (same default as Autoformer baseline)
+KERNEL_SIZE = 13   # moving-average decomposition kernel (same default as Autoformer baseline)
 BATCH_SIZE = 32
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 output_json_filename = "11_dlinear_baseline_pytorch_results.json"
@@ -276,7 +276,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     criterion = nn.MSELoss()
     # DLinear is extremely lightweight (2 linear layers only) - a higher LR than
     # the deep models often converges faster; kept modest here for stability.
-    optimizer = optim.Adam(model.parameters(), lr=0.0004398755995016172, weight_decay=5.588328733551692e-06)
+    optimizer = optim.Adam(model.parameters(), lr=0.0008117158273340351, weight_decay=1.0012577325066603e-05)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)

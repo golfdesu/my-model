@@ -70,13 +70,13 @@ if __name__ == '__main__':
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing
 # ---------------------------------------------------------
-data_path = 'data_cleaned/acn_jpl_ready.csv'
+data_path = 'data_cleaned/acn_caltech_ready2.csv'
 if not os.path.exists(data_path):
-    data_path = '../data_cleaned/acn_jpl_ready.csv'
+    data_path = '../data_cleaned/acn_caltech_ready2.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_jpl_ready.csv'
+    data_path = '../../data_cleaned/acn_caltech_ready2.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_jpl_ready.csv'
+    data_path = 'acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -349,17 +349,18 @@ CONFIG = {
     "num_features": num_total_features,
     "horizon": HORIZON,
     "target_idx": TARGET_CH_IDX,
-    "stack_types": ['generic', 'generic', 'generic'],
-    "n_layers": 3,
-    "hidden_dim": 128,
+    "stack_types": ['generic', 'generic', 'generic', 'generic'],
+    "n_layers": 4,
+    "hidden_dim": 256,
     "polynomial_degree": 2,
     "num_harmonics": 8,
-    "dropout": 0.2,
-    "learning_rate": 0.00048602227157609296,
-    "weight_decay": 0.00021637654380683903,
-    "batch_size": 128,
+    "dropout": 0.15,
+    "learning_rate": 0.0001670381722078314,
+    "weight_decay": 3.42014504392487e-06,
+    "batch_size": 64,
     "epochs": 200,
-    "patience": 15}
+    "patience": 15
+}
 
 def run_seed(seed):
     random.seed(seed)

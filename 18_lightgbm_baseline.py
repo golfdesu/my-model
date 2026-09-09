@@ -32,7 +32,7 @@ except Exception:
 # ---------------------------------------------------------------
 # Data Loading & Preprocessing (same path auto-detect and split as other scripts)
 # ---------------------------------------------------------------
-data_path = '../data_cleaned/acn_jpl_ready.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -162,18 +162,18 @@ LGB_PARAMS = dict(
     objective='regression',
     metric='mae',
     n_estimators=1000,
-    learning_rate=0.013951163436830116,
-    num_leaves=61,
-    max_depth=8,
-    min_child_samples=54,
-    subsample=0.809552629626573,
+    learning_rate=0.0782912324448459,
+    num_leaves=55,
+    max_depth=4,
+    min_child_samples=94,
+    subsample=0.8863926539765621,
     # CRITICAL: LightGBM only enables bagging when subsample_freq > 0.
     # Without this, subsample=0.8 is silently ignored (data used 100% every tree),
     # making the XGBoost comparison unfair. freq=1 = resample every iteration.
     subsample_freq=1,
-    colsample_bytree=0.6207890562172923,
-    reg_alpha=0.17286702542129492,
-    reg_lambda=0.004132868945082852,
+    colsample_bytree=0.5965008670020099,
+    reg_alpha=0.013878630634523076,
+    reg_lambda=0.0005197186104644345,
     max_bin=128,
     random_state=42,
     n_jobs=-1,
