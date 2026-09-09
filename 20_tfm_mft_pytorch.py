@@ -100,7 +100,9 @@ df = df.set_index('connectionTime')
 df = df.sort_index()  # Chronological order enforcement
 
 # Drop proven noise features (Invariant #2)
-df = df.drop(columns=['prcp', 'tempDiff_48', 'cldc'], errors='ignore')
+# Drop weather features (Ablation study: without weather)
+weather_cols = ['temp', 'rhum', 'prcp', 'wspd', 'pres', 'cldc', 'apparent_temp', 'tempDiff_48', 'tempMean_48']
+df = df.drop(columns=weather_cols, errors='ignore')
 
 cols = []
 for col in df.columns:
