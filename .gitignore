@@ -36,6 +36,9 @@ configs/
 docs/
 logs/
 plots/
+secret vault.txt
+*vault*.txt
+
 
 # 6. Benchmark results and model artifacts
 *_results.json
