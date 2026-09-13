@@ -82,10 +82,16 @@ for col in df.columns:
     if col != 'kWhDelivered':
         cols.append(col)
 
+# EEO Feature Partition: Endogenous (Load + Calendar) vs Exogenous (Weather Physics)
+exo_col_names = ['temp', 'rhum', 'wspd', 'pres', 'apparent_temp', 'tempMean_48']
+exo_indices = [i for i, c in enumerate(cols) if c in exo_col_names]
+endo_indices = [i for i, c in enumerate(cols) if c not in exo_col_names]
+
 X = df[cols]
 y = df['kWhDelivered']
 
 print(f"Dataset Loaded successfully from {data_path}! Total Rows: {len(df)}, Features Count: {len(cols)}")
+print(f"  -> EEO Subspace Partition: {len(endo_indices)} Endogenous Features, {len(exo_indices)} Exogenous Weather Features")
 
 # Train/Val/Test Split (60% / 20% / 20%)
 train_len = int(len(df) * 0.6)
@@ -164,25 +170,41 @@ class RMSNorm(nn.Module):
 
 class EncoderDecoderTransformer(nn.Module):
     """
-    Custom Pre-LN Encoder-Decoder Seq2Seq Transformer with RMSNorm (Model 00 v3).
+    Custom Pre-LN Encoder-Decoder Seq2Seq Transformer with RMSNorm and
+    Disentangled Exogenous-Endogenous Orthogonal Attention (Model 00 v4 EEO-Attention).
     Features:
+    - Dual-Stream Feature Partitioning: Separates Endogenous features (load lags + calendar)
+      from Exogenous features (ambient weather physics).
+    - Dual-Subspace Projection: Dedicated linear projections (proj_endo, proj_exo) concatenated
+      into a partitioned latent representation [d_model // 2, d_model // 2].
     - Pre-LN Residual Highway: Normalization precedes multi-head attention and FFN,
-      guaranteeing an unimpeded gradient flow (d(x_L)/d(x_l) = I + sum(...)) without gradient vanishing.
+      guaranteeing an unimpeded gradient flow without vanishing gradients.
     - RMSNorm: Eliminates mean shift computation to enforce scale invariance and stabilize attention condition numbers.
-    - Encoder: Feature Linear projection to d_model + Sinusoidal PE + Pre-LN RMSNorm Encoder stack + Final RMSNorm.
-    - Decoder: Zero placeholder query tokens + Sinusoidal PE + Pre-LN RMSNorm Causal Self-Attn + Cross-Attn + Final RMSNorm.
+    - EEO Cross-Subspace Orthogonal Regularization: Forces attention heads for weather and load
+      dynamics into mutually orthogonal sub-manifolds, preventing spurious correlations.
     - Output Head: Token-wise Linear projection (d_model -> 1) squeezed to [batch, horizon].
     """
     def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2,
-                 dropout_rate=0.05):
+                 dropout_rate=0.05, endo_indices=None, exo_indices=None):
         super().__init__()
         self.lookback = lookback
         self.horizon = horizon
         self.d_model = d_model
         self.num_layers = num_layers
+        self.endo_indices = endo_indices
+        self.exo_indices = exo_indices
 
-        # Encoder
-        self.enc_proj = nn.Linear(num_features, d_model)
+        # Dual-Stream Feature Projection (Endogenous vs Exogenous)
+        if endo_indices is not None and exo_indices is not None:
+            self.use_disentangled_proj = True
+            d_endo = d_model // 2
+            d_exo = d_model - d_endo
+            self.endo_proj = nn.Linear(len(endo_indices), d_endo)
+            self.exo_proj = nn.Linear(len(exo_indices), d_exo)
+        else:
+            self.use_disentangled_proj = False
+            self.enc_proj = nn.Linear(num_features, d_model)
+
         self.pos_emb_enc = PositionalEmbedding(lookback, d_model)
         self.drop_enc = nn.Dropout(dropout_rate)
 
@@ -236,8 +258,15 @@ class EncoderDecoderTransformer(nn.Module):
         # x: [batch, lookback, num_features]
         batch_size = x.size(0)
 
-        # Encoder (Pre-LN with RMSNorm)
-        enc = self.drop_enc(self.pos_emb_enc(self.enc_proj(x)))
+        # Encoder (Pre-LN with RMSNorm and Disentangled EEO Projection)
+        if self.use_disentangled_proj:
+            x_endo = x[:, :, self.endo_indices]
+            x_exo = x[:, :, self.exo_indices]
+            enc_feat = torch.cat([self.endo_proj(x_endo), self.exo_proj(x_exo)], dim=-1)
+        else:
+            enc_feat = self.enc_proj(x)
+
+        enc = self.drop_enc(self.pos_emb_enc(enc_feat))
         for i in range(self.num_layers):
             normed = self.enc_norm1[i](enc)
             attn_out, _ = self.enc_attn[i](normed, normed, normed)
@@ -277,17 +306,20 @@ class EncoderDecoderTransformer(nn.Module):
 
 
 # ==============================================================================
-# 4. Custom Feature: Attention Orthogonal Regularization (Intra + Inter-Head)
+# 4. Custom Feature: Attention Orthogonal Regularization (Intra + Inter-Head + EEO)
 # ==============================================================================
-def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, num_heads=8):
+def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, eeo_strength=1e-5, num_heads=8):
     """
-    [ACTIVE CUSTOM FEATURE: Intra-Matrix + Inter-Head Orthogonal Regularization]
+    [ACTIVE CUSTOM FEATURE: Tri-Component Orthogonal Regularization (Model 00 v4 EEO-Attention)]
     1. Intra-Matrix Orthogonality: strength * ||W^T W - I||_F^2
        Applied to W_Q, W_K, W_V, W_O across encoder, decoder self-attn, and cross-attn.
     2. Inter-Head Orthogonality: inter_head_strength * (off-diagonal cosine similarity)^2
-       Enforces diverse, non-redundant subspace representations across attention heads for W_Q and W_K.
+       Enforces diverse, non-redundant subspace representations across individual attention heads for W_Q and W_K.
+    3. EEO Cross-Subspace Orthogonality: eeo_strength * mean(cross_subspace_cosine^2)
+       Enforces strict orthogonality between Endogenous heads (0..num_heads//2-1) and
+       Exogenous heads (num_heads//2..num_heads-1) to eliminate cross-domain representation leakage.
     """
-    if strength <= 0.0 and inter_head_strength <= 0.0:
+    if strength <= 0.0 and inter_head_strength <= 0.0 and eeo_strength <= 0.0:
         return torch.tensor(0.0, device=device)
     penalty = torch.tensor(0.0, device=device)
     for name, param in model.named_parameters():
@@ -300,13 +332,28 @@ def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, n
                         wt_w = torch.matmul(w.t(), w)
                         identity = torch.eye(wt_w.size(0), device=param.device)
                         penalty = penalty + strength * torch.sum((wt_w - identity) ** 2)
-                    if inter_head_strength > 0.0 and idx_w in (0, 1) and num_heads > 1:
-                        w_heads = w.view(num_heads, -1)
-                        head_norms = torch.norm(w_heads, dim=1, keepdim=True) + 1e-8
-                        norm_gram = torch.matmul(w_heads, w_heads.t()) / torch.matmul(head_norms, head_norms.t())
-                        off_diag = norm_gram - torch.eye(num_heads, device=param.device)
-                        inter_loss = torch.sum(off_diag ** 2) / (num_heads * (num_heads - 1))
-                        penalty = penalty + inter_head_strength * inter_loss
+                    if (inter_head_strength > 0.0 or eeo_strength > 0.0) and idx_w in (0, 1) and num_heads > 1:
+                        head_dim = w.size(0) // num_heads
+                        w_heads = w.view(num_heads, head_dim, -1)
+
+                        if inter_head_strength > 0.0:
+                            w_heads_flat = w.view(num_heads, -1)
+                            head_norms = torch.norm(w_heads_flat, dim=1, keepdim=True) + 1e-8
+                            norm_gram = torch.matmul(w_heads_flat, w_heads_flat.t()) / torch.matmul(head_norms, head_norms.t())
+                            off_diag = norm_gram - torch.eye(num_heads, device=param.device)
+                            inter_loss = torch.sum(off_diag ** 2) / (num_heads * (num_heads - 1))
+                            penalty = penalty + inter_head_strength * inter_loss
+
+                        if eeo_strength > 0.0 and num_heads >= 4:
+                            mid = num_heads // 2
+                            w_endo = w_heads[:mid].reshape(mid * head_dim, -1)
+                            w_exo  = w_heads[mid:].reshape(mid * head_dim, -1)
+                            w_endo_norm = torch.norm(w_endo, dim=1, keepdim=True) + 1e-8
+                            w_exo_norm  = torch.norm(w_exo, dim=1, keepdim=True) + 1e-8
+                            cross_cos = torch.matmul(w_endo, w_exo.t()) / torch.matmul(w_endo_norm, w_exo_norm.t())
+                            eeo_loss = torch.mean(cross_cos ** 2)
+                            penalty = penalty + eeo_strength * eeo_loss
+
             elif 'out_proj.weight' in name or 'q_proj_weight' in name or 'k_proj_weight' in name or 'v_proj_weight' in name:
                 if strength > 0.0:
                     wt_w = torch.matmul(param.t(), param)
@@ -360,24 +407,29 @@ WEIGHT_DECAY        = 3.972110727381911e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
-# Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity)
+# Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
 ATTN_ORTHOGONAL_REG = 4.207053950287936e-06
 INTER_HEAD_ORTHOGONAL_REG = 3.1489116479568635e-05
+EEO_ORTHOGONAL_REG = 3.1489116479568635e-05
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
     "model_name": "00_tfm_custom_pytorch",
     "architecture_paradigm": "encoder_decoder_seq2seq",
     "base_model": "03_tfm_encdec_pytorch",
-    "version": "v3",
+    "version": "v4",
     "active_custom_features": [
         "encoder_decoder_cross_attention",
         "attention_orthogonal_regularization",
         "inter_head_orthogonal_regularization",
-        "pre_ln_rmsnorm_backbone"
+        "pre_ln_rmsnorm_backbone",
+        "disentangled_eeo_attention"
     ],
     "attn_orthogonal_reg_strength": ATTN_ORTHOGONAL_REG,
     "inter_head_orthogonal_reg_strength": INTER_HEAD_ORTHOGONAL_REG,
+    "eeo_orthogonal_reg_strength": EEO_ORTHOGONAL_REG,
+    "num_endo_features": len(endo_indices),
+    "num_exo_features": len(exo_indices),
     "dataset": "acn_jpl_ready",
     "with_weather": True,
     "seeds": {},
@@ -427,7 +479,9 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         num_heads=NUM_HEADS,
         d_ff=D_FF,
         num_layers=NUM_LAYERS,
-        dropout_rate=DROPOUT_RATE
+        dropout_rate=DROPOUT_RATE,
+        endo_indices=endo_indices,
+        exo_indices=exo_indices
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -454,13 +508,14 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
             batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             out = model(batch_X)
-            
-            # Primary MSE Loss + [ACTIVE CUSTOM FEATURE] Attention Orthogonal Regularization
+
+            # Primary MSE Loss + [ACTIVE CUSTOM FEATURE] Tri-Component Orthogonal Regularization
             mse_loss = criterion(out, batch_y)
             ortho_loss = compute_orthogonal_penalty(
                 model,
                 strength=ATTN_ORTHOGONAL_REG,
                 inter_head_strength=INTER_HEAD_ORTHOGONAL_REG,
+                eeo_strength=EEO_ORTHOGONAL_REG,
                 num_heads=NUM_HEADS
             )
             loss = mse_loss + ortho_loss
@@ -623,6 +678,7 @@ results_data["config"] = {
     "weight_decay": WEIGHT_DECAY,
     "attn_orthogonal_reg": ATTN_ORTHOGONAL_REG,
     "inter_head_orthogonal_reg": INTER_HEAD_ORTHOGONAL_REG,
+    "eeo_orthogonal_reg": EEO_ORTHOGONAL_REG,
     "learning_rate": LEARNING_RATE,
     "total_parameters": results_data.get("total_parameters", None)
 }
@@ -631,12 +687,12 @@ with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
 print(f"Successfully saved final results to {output_json_filename}")
 
-# Automatically archive artifacts to outputs/acn_jpn/00_v3
+# Automatically archive artifacts to outputs/acn_jpn/00_v4
 import shutil
-output_v3_dir = os.path.join("outputs", "acn_jpn", "00_v3")
-os.makedirs(output_v3_dir, exist_ok=True)
+output_v4_dir = os.path.join("outputs", "acn_jpn", "00_v4")
+os.makedirs(output_v4_dir, exist_ok=True)
 for fname in [output_json_filename, "00_tfm_custom_pytorch_best.pt", "00_tfm_custom_pytorch_predictions.npz"]:
     if os.path.exists(fname):
-        shutil.copy(fname, os.path.join(output_v3_dir, fname))
-print(f"Successfully archived all artifacts to {output_v3_dir}/")
+        shutil.copy(fname, os.path.join(output_v4_dir, fname))
+print(f"Successfully archived all artifacts to {output_v4_dir}/")
 print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
