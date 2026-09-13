@@ -35,15 +35,13 @@ trap on_error ERR
 
 run_benchmark() {
     local script="$1"
-    local log_name="$2"
     CURRENT_SCRIPT="${script}"
 
     echo "=============================================================================="
     echo ">>> [STARTED] ${script} at $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "    Dataset benchmark ${log_name}"
     echo "=============================================================================="
 
-    python -u "${script}" 2>&1 | tee "logs/${SLURM_JOB_NAME}_${SLURM_JOB_ID}_${log_name}.out"
+    python -u "${script}"
 
     echo "=============================================================================="
     echo ">>> [SUCCESS] ${script} completed at $(date '+%Y-%m-%d %H:%M:%S')"
@@ -101,8 +99,8 @@ fi
 echo "Confirmed: running on NVIDIA H100."
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'Device 0: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'No GPU detected')"
 
-run_benchmark "00_v4_acn_caltech_no_weather.py" "acn_caltech_no_weather"
-run_benchmark "00_v4_acn_jpn_no_weather.py" "acn_jpn_no_weather"
+run_benchmark "00_v4_acn_caltech_no_weather.py"
+run_benchmark "00_v4_acn_jpn_no_weather.py"
 
 TOTAL_TIME=$(( $(date +%s) - START_TIME ))
 echo "=============================================================================="
