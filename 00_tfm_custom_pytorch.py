@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
@@ -168,10 +169,45 @@ class RMSNorm(nn.Module):
         return x * torch.rsqrt(variance + self.eps) * self.weight
 
 
+class FastMHA(nn.Module):
+    """
+    Hardware-Accelerated Scaled Dot-Product Multi-Head Attention (FastMHA)
+    (MLE Foundations Topic 151; FlashAttention & Online Softmax Math).
+    Replaces standard un-fused MultiheadAttention with PyTorch native F.scaled_dot_product_attention.
+    Executes directly in on-chip SRAM via fused FlashAttention-2 / cuDNN kernels on NVIDIA H100
+    without materializing intermediate N x N attention matrices in high-bandwidth memory (HBM).
+    """
+    def __init__(self, embed_dim, num_heads, dropout=0.0):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim)
+        self.k_proj = nn.Linear(embed_dim, embed_dim)
+        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        self.dropout_p = dropout
+
+    def forward(self, query, key, value, is_causal=False):
+        B, Sq, _ = query.shape
+        _, Sk, _ = key.shape
+
+        q = self.q_proj(query).view(B, Sq, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(key).view(B, Sk, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(value).view(B, Sk, self.num_heads, self.head_dim).transpose(1, 2)
+
+        drop_p = self.dropout_p if self.training else 0.0
+        attn_out = F.scaled_dot_product_attention(q, k, v, dropout_p=drop_p, is_causal=is_causal)
+        attn_out = attn_out.transpose(1, 2).reshape(B, Sq, self.embed_dim)
+        return self.out_proj(attn_out)
+
+
 class EncoderDecoderTransformer(nn.Module):
     """
     Custom Pre-LN Encoder-Decoder Seq2Seq Transformer with RMSNorm and
-    Disentangled Exogenous-Endogenous Orthogonal Attention (Model 00 v4 EEO-Attention).
+    Disentangled Exogenous-Endogenous Orthogonal Attention (Model 00 v5 Fused Fast Engine).
     Features:
     - Dual-Stream Feature Partitioning: Separates Endogenous features (load lags + calendar)
       from Exogenous features (ambient weather physics).
@@ -180,8 +216,9 @@ class EncoderDecoderTransformer(nn.Module):
     - Pre-LN Residual Highway: Normalization precedes multi-head attention and FFN,
       guaranteeing an unimpeded gradient flow without vanishing gradients.
     - RMSNorm: Eliminates mean shift computation to enforce scale invariance and stabilize attention condition numbers.
-    - EEO Cross-Subspace Orthogonal Regularization: Forces attention heads for weather and load
-      dynamics into mutually orthogonal sub-manifolds, preventing spurious correlations.
+    - Fused FastMHA: Fused Scaled Dot-Product Attention (SDPA) with hardware SRAM tiling (Topic 151).
+    - Vectorized Batched Orthogonal Regularization: Closed-form batched matrix multiplication (torch.bmm)
+      across all attention projections simultaneously (Topic 15 & 21).
     - Output Head: Token-wise Linear projection (d_model -> 1) squeezed to [batch, horizon].
     """
     def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2,
@@ -190,6 +227,8 @@ class EncoderDecoderTransformer(nn.Module):
         self.lookback = lookback
         self.horizon = horizon
         self.d_model = d_model
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
         self.num_layers = num_layers
         self.endo_indices = endo_indices
         self.exo_indices = exo_indices
@@ -209,7 +248,7 @@ class EncoderDecoderTransformer(nn.Module):
         self.drop_enc = nn.Dropout(dropout_rate)
 
         self.enc_attn = nn.ModuleList([
-            nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
+            FastMHA(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
             for _ in range(num_layers)
         ])
         self.enc_norm1 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
@@ -229,13 +268,13 @@ class EncoderDecoderTransformer(nn.Module):
         self.drop_dec = nn.Dropout(dropout_rate)
 
         self.dec_attn = nn.ModuleList([
-            nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
+            FastMHA(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
             for _ in range(num_layers)
         ])
         self.dec_norm1 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
 
         self.cross_attn = nn.ModuleList([
-            nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
+            FastMHA(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
             for _ in range(num_layers)
         ])
         self.dec_norm2 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
@@ -254,6 +293,9 @@ class EncoderDecoderTransformer(nn.Module):
         # Token-wise linear projection head
         self.out_head = nn.Linear(d_model, 1)
 
+        # Pre-cache attention layer references for zero-overhead vectorized penalty computation
+        self.all_attn_layers = list(self.enc_attn) + list(self.dec_attn) + list(self.cross_attn)
+
     def forward(self, x):
         # x: [batch, lookback, num_features]
         batch_size = x.size(0)
@@ -269,7 +311,7 @@ class EncoderDecoderTransformer(nn.Module):
         enc = self.drop_enc(self.pos_emb_enc(enc_feat))
         for i in range(self.num_layers):
             normed = self.enc_norm1[i](enc)
-            attn_out, _ = self.enc_attn[i](normed, normed, normed)
+            attn_out = self.enc_attn[i](normed, normed, normed, is_causal=False)
             enc = enc + self.drop_enc(attn_out)
 
             normed = self.enc_norm2[i](enc)
@@ -282,18 +324,14 @@ class EncoderDecoderTransformer(nn.Module):
         dec_in = torch.zeros(batch_size, self.horizon, self.d_model, device=x.device)
         dec = self.drop_dec(self.pos_emb_dec(dec_in))
 
-        causal_mask = torch.triu(
-            torch.full((self.horizon, self.horizon), float('-inf'), device=x.device),
-            diagonal=1
-        )
-
         for i in range(self.num_layers):
             normed = self.dec_norm1[i](dec)
-            dec_attn_out, _ = self.dec_attn[i](normed, normed, normed, attn_mask=causal_mask)
+            # Fused SDPA causal masking (is_causal=True) executes directly in SRAM without materializing mask tensor
+            dec_attn_out = self.dec_attn[i](normed, normed, normed, is_causal=True)
             dec = dec + self.drop_dec(dec_attn_out)
 
             normed = self.dec_norm2[i](dec)
-            cross_attn_out, _ = self.cross_attn[i](query=normed, key=enc_out, value=enc_out)
+            cross_attn_out = self.cross_attn[i](query=normed, key=enc_out, value=enc_out, is_causal=False)
             dec = dec + self.drop_dec(cross_attn_out)
 
             normed = self.dec_norm3[i](dec)
@@ -304,62 +342,66 @@ class EncoderDecoderTransformer(nn.Module):
         out = self.out_head(dec).squeeze(-1)  # [batch, horizon]
         return out
 
+    def compute_vectorized_orthogonal_penalty(self, strength=1e-5, inter_head_strength=1e-5, eeo_strength=1e-5):
+        """
+        [ACTIVE CUSTOM FEATURE: Vectorized Batched Orthogonal Regularization (Model 00 v5 Engine)]
+        Replaces Python named_parameters loop and micro-kernel launches with 3 batched GEMM operations (torch.bmm):
+        1. Batched Intra-Matrix Isometry: all_weights.transpose(1, 2) @ all_weights -> 1 kernel
+        2. Batched Inter-Head Diversity: w_heads_flat @ w_heads_flat.transpose(1, 2) -> 1 kernel
+        3. Batched EEO Cross-Subspace Orthogonality: w_endo @ w_exo.transpose(1, 2) -> 1 kernel
+        """
+        if strength <= 0.0 and inter_head_strength <= 0.0 and eeo_strength <= 0.0:
+            return torch.tensor(0.0, device=self.out_head.weight.device)
+
+        q_weights = [layer.q_proj.weight for layer in self.all_attn_layers]
+        k_weights = [layer.k_proj.weight for layer in self.all_attn_layers]
+        v_weights = [layer.v_proj.weight for layer in self.all_attn_layers]
+        out_weights = [layer.out_proj.weight for layer in self.all_attn_layers]
+
+        stacked_qk = torch.stack(q_weights + k_weights, dim=0) # [12, d_model, d_model]
+        stacked_v_out = torch.stack(v_weights + out_weights, dim=0) # [12, d_model, d_model]
+        all_weights = torch.cat([stacked_qk, stacked_v_out], dim=0) # [24, d_model, d_model]
+
+        penalty = torch.tensor(0.0, device=all_weights.device)
+
+        # 1. Batched Intra-Matrix Isometry (across all 24 weight matrices)
+        if strength > 0.0:
+            wt_w = torch.bmm(all_weights.transpose(1, 2), all_weights)
+            eye = torch.eye(self.d_model, device=all_weights.device).unsqueeze(0)
+            penalty = penalty + strength * torch.sum((wt_w - eye) ** 2)
+
+        # 2. Batched Inter-Head Diversity (across all 12 Q and K matrices)
+        num_qk = stacked_qk.size(0)
+        if inter_head_strength > 0.0 and self.num_heads > 1:
+            w_heads_flat = stacked_qk.view(num_qk, self.num_heads, -1)
+            head_norms = torch.norm(w_heads_flat, dim=-1, keepdim=True) + 1e-8
+            norm_gram = torch.bmm(w_heads_flat, w_heads_flat.transpose(1, 2)) / torch.bmm(head_norms, head_norms.transpose(1, 2))
+            off_diag = norm_gram - torch.eye(self.num_heads, device=all_weights.device).unsqueeze(0)
+            inter_loss = torch.sum(off_diag ** 2) / (num_qk * self.num_heads * (self.num_heads - 1))
+            penalty = penalty + inter_head_strength * inter_loss
+
+        # 3. Batched EEO Cross-Subspace Orthogonality (across all 12 Q and K matrices)
+        if eeo_strength > 0.0 and self.num_heads >= 4:
+            mid = self.num_heads // 2
+            w_heads = stacked_qk.view(num_qk, self.num_heads, self.head_dim, self.d_model)
+            w_endo = w_heads[:, :mid].reshape(num_qk, mid * self.head_dim, self.d_model)
+            w_exo  = w_heads[:, mid:].reshape(num_qk, mid * self.head_dim, self.d_model)
+            w_endo_norm = torch.norm(w_endo, dim=-1, keepdim=True) + 1e-8
+            w_exo_norm  = torch.norm(w_exo, dim=-1, keepdim=True) + 1e-8
+            cross_cos = torch.bmm(w_endo, w_exo.transpose(1, 2)) / torch.bmm(w_endo_norm, w_exo_norm.transpose(1, 2))
+            eeo_loss = torch.mean(cross_cos ** 2)
+            penalty = penalty + eeo_strength * eeo_loss
+
+        return penalty
+
 
 # ==============================================================================
-# 4. Custom Feature: Attention Orthogonal Regularization (Intra + Inter-Head + EEO)
+# 4. Custom Feature: Attention Orthogonal Regularization Helper
 # ==============================================================================
 def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, eeo_strength=1e-5, num_heads=8):
-    """
-    [ACTIVE CUSTOM FEATURE: Tri-Component Orthogonal Regularization (Model 00 v4 EEO-Attention)]
-    1. Intra-Matrix Orthogonality: strength * ||W^T W - I||_F^2
-       Applied to W_Q, W_K, W_V, W_O across encoder, decoder self-attn, and cross-attn.
-    2. Inter-Head Orthogonality: inter_head_strength * (off-diagonal cosine similarity)^2
-       Enforces diverse, non-redundant subspace representations across individual attention heads for W_Q and W_K.
-    3. EEO Cross-Subspace Orthogonality: eeo_strength * mean(cross_subspace_cosine^2)
-       Enforces strict orthogonality between Endogenous heads (0..num_heads//2-1) and
-       Exogenous heads (num_heads//2..num_heads-1) to eliminate cross-domain representation leakage.
-    """
-    if strength <= 0.0 and inter_head_strength <= 0.0 and eeo_strength <= 0.0:
-        return torch.tensor(0.0, device=device)
-    penalty = torch.tensor(0.0, device=device)
-    for name, param in model.named_parameters():
-        if param.ndim == 2:
-            if 'in_proj_weight' in name:
-                # MultiheadAttention packs Q, K, V along dim 0: shape [3 * d_model, d_model]
-                chunks = param.chunk(3, dim=0)
-                for idx_w, w in enumerate(chunks):
-                    if strength > 0.0:
-                        wt_w = torch.matmul(w.t(), w)
-                        identity = torch.eye(wt_w.size(0), device=param.device)
-                        penalty = penalty + strength * torch.sum((wt_w - identity) ** 2)
-                    if (inter_head_strength > 0.0 or eeo_strength > 0.0) and idx_w in (0, 1) and num_heads > 1:
-                        head_dim = w.size(0) // num_heads
-                        w_heads = w.view(num_heads, head_dim, -1)
-
-                        if inter_head_strength > 0.0:
-                            w_heads_flat = w.view(num_heads, -1)
-                            head_norms = torch.norm(w_heads_flat, dim=1, keepdim=True) + 1e-8
-                            norm_gram = torch.matmul(w_heads_flat, w_heads_flat.t()) / torch.matmul(head_norms, head_norms.t())
-                            off_diag = norm_gram - torch.eye(num_heads, device=param.device)
-                            inter_loss = torch.sum(off_diag ** 2) / (num_heads * (num_heads - 1))
-                            penalty = penalty + inter_head_strength * inter_loss
-
-                        if eeo_strength > 0.0 and num_heads >= 4:
-                            mid = num_heads // 2
-                            w_endo = w_heads[:mid].reshape(mid * head_dim, -1)
-                            w_exo  = w_heads[mid:].reshape(mid * head_dim, -1)
-                            w_endo_norm = torch.norm(w_endo, dim=1, keepdim=True) + 1e-8
-                            w_exo_norm  = torch.norm(w_exo, dim=1, keepdim=True) + 1e-8
-                            cross_cos = torch.matmul(w_endo, w_exo.t()) / torch.matmul(w_endo_norm, w_exo_norm.t())
-                            eeo_loss = torch.mean(cross_cos ** 2)
-                            penalty = penalty + eeo_strength * eeo_loss
-
-            elif 'out_proj.weight' in name or 'q_proj_weight' in name or 'k_proj_weight' in name or 'v_proj_weight' in name:
-                if strength > 0.0:
-                    wt_w = torch.matmul(param.t(), param)
-                    identity = torch.eye(wt_w.size(0), device=param.device)
-                    penalty = penalty + strength * torch.sum((wt_w - identity) ** 2)
-    return penalty
+    if hasattr(model, 'compute_vectorized_orthogonal_penalty'):
+        return model.compute_vectorized_orthogonal_penalty(strength, inter_head_strength, eeo_strength)
+    return torch.tensor(0.0, device=device)
 
 
 # ==============================================================================
@@ -415,15 +457,18 @@ EEO_ORTHOGONAL_REG = 3.1489116479568635e-05
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
     "model_name": "00_tfm_custom_pytorch",
-    "architecture_paradigm": "encoder_decoder_seq2seq",
+    "architecture_paradigm": "encoder_decoder_seq2seq_fast_fused_eeo",
     "base_model": "03_tfm_encdec_pytorch",
-    "version": "v4",
+    "version": "v5",
     "active_custom_features": [
         "encoder_decoder_cross_attention",
         "attention_orthogonal_regularization",
         "inter_head_orthogonal_regularization",
         "pre_ln_rmsnorm_backbone",
-        "disentangled_eeo_attention"
+        "disentangled_eeo_attention",
+        "fast_sdpa_fused_attention",
+        "vectorized_batched_orthogonal_regularization",
+        "zero_copy_gpu_resident_tensors"
     ],
     "attn_orthogonal_reg_strength": ATTN_ORTHOGONAL_REG,
     "inter_head_orthogonal_reg_strength": INTER_HEAD_ORTHOGONAL_REG,
@@ -448,9 +493,17 @@ X_train_t, y_train_t, _, _ = create_windowed_tensors(X_train_scaled, y_train_sca
 X_val_t, y_val_t, _, _     = create_windowed_tensors(X_val_scaled, y_val_scaled, LOOKBACK, HORIZON)
 X_test_t, y_test_t, X_test_seq, y_test_seq = create_windowed_tensors(X_test_scaled, y_test_scaled, LOOKBACK, HORIZON)
 
-train_dataset = TensorDataset(X_train_t, y_train_t)
-val_dataset   = TensorDataset(X_val_t, y_val_t)
-test_dataset  = TensorDataset(X_test_t, y_test_t)
+# Pre-load tensors to target compute device (GPU VRAM / CPU) to eliminate per-batch transfer latency
+X_train_dev = X_train_t.to(device)
+y_train_dev = y_train_t.to(device)
+X_val_dev   = X_val_t.to(device)
+y_val_dev   = y_val_t.to(device)
+X_test_dev  = X_test_t.to(device)
+
+n_train = X_train_dev.size(0)
+n_val   = X_val_dev.size(0)
+n_test  = X_test_dev.size(0)
+n_batches_train = n_train // BATCH_SIZE
 
 print(f"Starting Automated {len(SEEDS)}-Seed Loop for 00_tfm_custom_pytorch in PyTorch...")
 
@@ -466,10 +519,6 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     torch.manual_seed(SEED)
     torch.cuda.manual_seed_all(SEED)
     np.random.seed(SEED)
-
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True, pin_memory=(device.type == 'cuda'))
-    val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
-    test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
     model = EncoderDecoderTransformer(
         lookback=LOOKBACK,
@@ -504,39 +553,42 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     for epoch in epoch_pbar:
         model.train()
         train_loss = 0.0
-        for batch_X, batch_y in train_loader:
-            batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
+        perm = torch.randperm(n_train, device=device)
+        for b_i in range(n_batches_train):
+            idx = perm[b_i * BATCH_SIZE : (b_i + 1) * BATCH_SIZE]
+            batch_X = X_train_dev[idx]
+            batch_y = y_train_dev[idx]
+
             optimizer.zero_grad(set_to_none=True)
             out = model(batch_X)
 
-            # Primary MSE Loss + [ACTIVE CUSTOM FEATURE] Tri-Component Orthogonal Regularization
+            # Primary MSE Loss + [ACTIVE CUSTOM FEATURE] Vectorized Batched Orthogonal Regularization
             mse_loss = criterion(out, batch_y)
-            ortho_loss = compute_orthogonal_penalty(
-                model,
+            ortho_loss = model.compute_vectorized_orthogonal_penalty(
                 strength=ATTN_ORTHOGONAL_REG,
                 inter_head_strength=INTER_HEAD_ORTHOGONAL_REG,
-                eeo_strength=EEO_ORTHOGONAL_REG,
-                num_heads=NUM_HEADS
+                eeo_strength=EEO_ORTHOGONAL_REG
             )
             loss = mse_loss + ortho_loss
 
             loss.backward()
             optimizer.step()
-            train_loss += mse_loss.item() * batch_X.size(0)
+            train_loss += mse_loss.item() * BATCH_SIZE
 
-        train_loss /= len(train_loader.dataset)
+        train_loss /= (n_batches_train * BATCH_SIZE)
 
         # Validation
         model.eval()
         val_loss = 0.0
         with torch.inference_mode():
-            for batch_X, batch_y in val_loader:
-                batch_X, batch_y = batch_X.to(device, non_blocking=True), batch_y.to(device, non_blocking=True)
+            for v_i in range(0, n_val, BATCH_SIZE):
+                batch_X = X_val_dev[v_i : v_i + BATCH_SIZE]
+                batch_y = y_val_dev[v_i : v_i + BATCH_SIZE]
                 out = model(batch_X)
                 loss = criterion(out, batch_y)
                 val_loss += loss.item() * batch_X.size(0)
 
-        val_loss /= len(val_loader.dataset)
+        val_loss /= n_val
         scheduler.step(val_loss)
 
         train_loss_history.append(float(train_loss))
@@ -561,8 +613,8 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     model.eval()
     y_pred_list = []
     with torch.inference_mode():
-        for batch_X, _ in test_loader:
-            batch_X = batch_X.to(device, non_blocking=True)
+        for t_i in range(0, n_test, BATCH_SIZE):
+            batch_X = X_test_dev[t_i : t_i + BATCH_SIZE]
             out = model(batch_X)
             y_pred_list.append(out.cpu().numpy())
 
@@ -687,12 +739,12 @@ with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
 print(f"Successfully saved final results to {output_json_filename}")
 
-# Automatically archive artifacts to outputs/acn_jpn/00_v4
+# Automatically archive artifacts to outputs/acn_jpn/00_v5
 import shutil
-output_v4_dir = os.path.join("outputs", "acn_jpn", "00_v4")
-os.makedirs(output_v4_dir, exist_ok=True)
+output_v5_dir = os.path.join("outputs", "acn_jpn", "00_v5")
+os.makedirs(output_v5_dir, exist_ok=True)
 for fname in [output_json_filename, "00_tfm_custom_pytorch_best.pt", "00_tfm_custom_pytorch_predictions.npz"]:
     if os.path.exists(fname):
-        shutil.copy(fname, os.path.join(output_v4_dir, fname))
-print(f"Successfully archived all artifacts to {output_v4_dir}/")
+        shutil.copy(fname, os.path.join(output_v5_dir, fname))
+print(f"Successfully archived all artifacts to {output_v5_dir}/")
 print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
