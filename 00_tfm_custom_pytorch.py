@@ -145,14 +145,33 @@ class PositionalEmbedding(nn.Module):
         return x + self.pe[:, :x.size(1), :]
 
 
+class RMSNorm(nn.Module):
+    """
+    Root Mean Square Layer Normalization (Zhang & Sennrich, NeurIPS 2019; MLE Foundations Topic 150).
+    Replaces standard LayerNorm to eliminate mean shift computation, stabilizing gradient propagation
+    and preserving isometric scaling across residual connections:
+    RMSNorm(x) = (x / RMS(x)) * gamma, where RMS(x) = sqrt(mean(x^2) + eps)
+    """
+    def __init__(self, d_model, eps=1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(d_model))
+
+    def forward(self, x):
+        variance = x.pow(2).mean(-1, keepdim=True)
+        return x * torch.rsqrt(variance + self.eps) * self.weight
+
+
 class EncoderDecoderTransformer(nn.Module):
     """
-    Custom Encoder-Decoder Seq2Seq Transformer for EV Charging Load Forecasting.
+    Custom Pre-LN Encoder-Decoder Seq2Seq Transformer with RMSNorm (Model 00 v3).
     Features:
-    - Encoder: Feature Linear projection to d_model + Sinusoidal PE + TransformerEncoder
-    - Decoder: Zero placeholder query tokens + Sinusoidal PE + Causal Masked Self-Attention
-    - Cross-Attention: Decoder queries attend over Encoder temporal memory (query=dec, key=enc, value=enc)
-    - Output Head: Token-wise Linear projection (d_model -> 1) squeezed to [batch, horizon]
+    - Pre-LN Residual Highway: Normalization precedes multi-head attention and FFN,
+      guaranteeing an unimpeded gradient flow (d(x_L)/d(x_l) = I + sum(...)) without gradient vanishing.
+    - RMSNorm: Eliminates mean shift computation to enforce scale invariance and stabilize attention condition numbers.
+    - Encoder: Feature Linear projection to d_model + Sinusoidal PE + Pre-LN RMSNorm Encoder stack + Final RMSNorm.
+    - Decoder: Zero placeholder query tokens + Sinusoidal PE + Pre-LN RMSNorm Causal Self-Attn + Cross-Attn + Final RMSNorm.
+    - Output Head: Token-wise Linear projection (d_model -> 1) squeezed to [batch, horizon].
     """
     def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2,
                  dropout_rate=0.05):
@@ -167,15 +186,21 @@ class EncoderDecoderTransformer(nn.Module):
         self.pos_emb_enc = PositionalEmbedding(lookback, d_model)
         self.drop_enc = nn.Dropout(dropout_rate)
 
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=num_heads,
-            dim_feedforward=d_ff,
-            dropout=dropout_rate,
-            batch_first=True,
-            activation='relu'
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.enc_attn = nn.ModuleList([
+            nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
+            for _ in range(num_layers)
+        ])
+        self.enc_norm1 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
+        self.enc_ffn = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(d_model, d_ff),
+                nn.ReLU(),
+                nn.Dropout(dropout_rate),
+                nn.Linear(d_ff, d_model)
+            ) for _ in range(num_layers)
+        ])
+        self.enc_norm2 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
+        self.enc_final_norm = RMSNorm(d_model)
 
         # Decoder
         self.pos_emb_dec = PositionalEmbedding(horizon, d_model)
@@ -185,24 +210,24 @@ class EncoderDecoderTransformer(nn.Module):
             nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
             for _ in range(num_layers)
         ])
-        self.norm1_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
+        self.dec_norm1 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
 
         self.cross_attn = nn.ModuleList([
             nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
             for _ in range(num_layers)
         ])
-        self.norm2_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
+        self.dec_norm2 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
 
         self.ffn_dec = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(d_model, d_ff),
                 nn.ReLU(),
                 nn.Dropout(dropout_rate),
-                nn.Linear(d_ff, d_model),
-                nn.Dropout(dropout_rate)
+                nn.Linear(d_ff, d_model)
             ) for _ in range(num_layers)
         ])
-        self.norm3_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
+        self.dec_norm3 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
+        self.dec_final_norm = RMSNorm(d_model)
 
         # Token-wise linear projection head
         self.out_head = nn.Linear(d_model, 1)
@@ -211,9 +236,18 @@ class EncoderDecoderTransformer(nn.Module):
         # x: [batch, lookback, num_features]
         batch_size = x.size(0)
 
-        # Encoder
-        enc_in = self.drop_enc(self.pos_emb_enc(self.enc_proj(x)))
-        enc_out = self.encoder(enc_in)
+        # Encoder (Pre-LN with RMSNorm)
+        enc = self.drop_enc(self.pos_emb_enc(self.enc_proj(x)))
+        for i in range(self.num_layers):
+            normed = self.enc_norm1[i](enc)
+            attn_out, _ = self.enc_attn[i](normed, normed, normed)
+            enc = enc + self.drop_enc(attn_out)
+
+            normed = self.enc_norm2[i](enc)
+            ffn_out = self.enc_ffn[i](normed)
+            enc = enc + self.drop_enc(ffn_out)
+
+        enc_out = self.enc_final_norm(enc)
 
         # Decoder initial context (zero placeholder query tokens for forecast horizon)
         dec_in = torch.zeros(batch_size, self.horizon, self.d_model, device=x.device)
@@ -225,15 +259,19 @@ class EncoderDecoderTransformer(nn.Module):
         )
 
         for i in range(self.num_layers):
-            dec_attn_out, _ = self.dec_attn[i](dec, dec, dec, attn_mask=causal_mask)
-            dec = self.norm1_dec[i](dec + self.drop_dec(dec_attn_out))
+            normed = self.dec_norm1[i](dec)
+            dec_attn_out, _ = self.dec_attn[i](normed, normed, normed, attn_mask=causal_mask)
+            dec = dec + self.drop_dec(dec_attn_out)
 
-            cross_attn_out, _ = self.cross_attn[i](query=dec, key=enc_out, value=enc_out)
-            dec = self.norm2_dec[i](dec + self.drop_dec(cross_attn_out))
+            normed = self.dec_norm2[i](dec)
+            cross_attn_out, _ = self.cross_attn[i](query=normed, key=enc_out, value=enc_out)
+            dec = dec + self.drop_dec(cross_attn_out)
 
-            ffn_out = self.ffn_dec[i](dec)
-            dec = self.norm3_dec[i](dec + ffn_out)
+            normed = self.dec_norm3[i](dec)
+            ffn_out = self.ffn_dec[i](normed)
+            dec = dec + self.drop_dec(ffn_out)
 
+        dec = self.dec_final_norm(dec)
         out = self.out_head(dec).squeeze(-1)  # [batch, horizon]
         return out
 
@@ -331,10 +369,12 @@ results_data = {
     "model_name": "00_tfm_custom_pytorch",
     "architecture_paradigm": "encoder_decoder_seq2seq",
     "base_model": "03_tfm_encdec_pytorch",
+    "version": "v3",
     "active_custom_features": [
         "encoder_decoder_cross_attention",
         "attention_orthogonal_regularization",
-        "inter_head_orthogonal_regularization"
+        "inter_head_orthogonal_regularization",
+        "pre_ln_rmsnorm_backbone"
     ],
     "attn_orthogonal_reg_strength": ATTN_ORTHOGONAL_REG,
     "inter_head_orthogonal_reg_strength": INTER_HEAD_ORTHOGONAL_REG,
@@ -591,12 +631,12 @@ with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
 print(f"Successfully saved final results to {output_json_filename}")
 
-# Automatically archive artifacts to outputs/acn_jpn/00_v2
+# Automatically archive artifacts to outputs/acn_jpn/00_v3
 import shutil
-output_v2_dir = os.path.join("outputs", "acn_jpn", "00_v2")
-os.makedirs(output_v2_dir, exist_ok=True)
+output_v3_dir = os.path.join("outputs", "acn_jpn", "00_v3")
+os.makedirs(output_v3_dir, exist_ok=True)
 for fname in [output_json_filename, "00_tfm_custom_pytorch_best.pt", "00_tfm_custom_pytorch_predictions.npz"]:
     if os.path.exists(fname):
-        shutil.copy(fname, os.path.join(output_v2_dir, fname))
-print(f"Successfully archived all artifacts to {output_v2_dir}/")
+        shutil.copy(fname, os.path.join(output_v3_dir, fname))
+print(f"Successfully archived all artifacts to {output_v3_dir}/")
 print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
