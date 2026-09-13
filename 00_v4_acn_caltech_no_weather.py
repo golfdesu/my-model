@@ -393,24 +393,24 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 128    # Seq2Seq optimal batch size for JPL
+BATCH_SIZE = 64     # Seq2Seq optimal batch size for Caltech
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Matching Seq2Seq optimal baseline 03 on JPL with weather)
-D_MODEL             = 128
-NUM_HEADS           = 8
-D_FF                = 512
+# Hyperparameters (Matching Seq2Seq optimal baseline 03 on Caltech)
+D_MODEL             = 64
+NUM_HEADS           = 4
+D_FF                = 128
 NUM_LAYERS          = 2
-DROPOUT_RATE        = 0.1
-LEARNING_RATE       = 0.0006097839109531517
-WEIGHT_DECAY        = 3.972110727381911e-06
+DROPOUT_RATE        = 0.05
+LEARNING_RATE       = 0.00032030989447217294
+WEIGHT_DECAY        = 2.346586192695657e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
-# Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
-ATTN_ORTHOGONAL_REG = 4.207053950287936e-06
-INTER_HEAD_ORTHOGONAL_REG = 3.1489116479568635e-05
-EEO_ORTHOGONAL_REG = 3.1489116479568635e-05
+# Custom Regularization Hyperparameters (Intra-Matrix; no exogenous weather features)
+ATTN_ORTHOGONAL_REG = 0.009639757903159522
+INTER_HEAD_ORTHOGONAL_REG = 0.0
+EEO_ORTHOGONAL_REG = 0.0
 
 OUTPUT_STEM = "00_v4_acn_caltech_no_weather"
 output_json_filename = f"{OUTPUT_STEM}_results.json"

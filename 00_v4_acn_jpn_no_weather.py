@@ -407,10 +407,10 @@ WEIGHT_DECAY        = 3.972110727381911e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
-# Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
+# Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity; no exogenous weather features)
 ATTN_ORTHOGONAL_REG = 4.207053950287936e-06
 INTER_HEAD_ORTHOGONAL_REG = 3.1489116479568635e-05
-EEO_ORTHOGONAL_REG = 3.1489116479568635e-05
+EEO_ORTHOGONAL_REG = 0.0
 
 OUTPUT_STEM = "00_v4_acn_jpn_no_weather"
 output_json_filename = f"{OUTPUT_STEM}_results.json"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# SLURM Job Script: Model 00 v4 — Three Dataset Benchmarks
+# SLURM Job Script: Model 00 v4 — Two Dataset Benchmarks (No Weather)
 # Target Hardware: compute4 node (NVIDIA H100 80GB HBM3), partition gpu-h100
 # Execution: Sequential 10-seed benchmarks; stop on the first failure
 # ============================================================================
@@ -13,7 +13,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
-#SBATCH --time=06:00:00
+#SBATCH --time=04:30:00
 
 set -Eeuo pipefail
 
@@ -57,7 +57,7 @@ echo "Partition           : ${SLURM_JOB_PARTITION:-unknown}"
 echo "Job Name            : ${SLURM_JOB_NAME:-bench_00_v4_all}"
 echo "Working Directory   : $(pwd)"
 echo "Start Time          : $(date '+%Y-%m-%d %H:%M:%S')"
-echo "Target Model        : Model 00 v4 — three sequential benchmarks"
+echo "Target Model        : Model 00 v4 — two sequential benchmarks (no weather)"
 echo "=============================================================================="
 
 # Activate the project environment when available.
@@ -101,12 +101,11 @@ fi
 echo "Confirmed: running on NVIDIA H100."
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'Device 0: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'No GPU detected')"
 
-run_benchmark "00_v4_acn_caltech.py" "acn_caltech"
 run_benchmark "00_v4_acn_caltech_no_weather.py" "acn_caltech_no_weather"
 run_benchmark "00_v4_acn_jpn_no_weather.py" "acn_jpn_no_weather"
 
 TOTAL_TIME=$(( $(date +%s) - START_TIME ))
 echo "=============================================================================="
-echo ">>> [SUCCESS] All three Model 00 v4 benchmarks completed in ${TOTAL_TIME}s"
+echo ">>> [SUCCESS] Both Model 00 v4 no-weather benchmarks completed in ${TOTAL_TIME}s"
 echo "    Results are archived by each Python script in its dataset-specific output directory."
 echo "=============================================================================="
