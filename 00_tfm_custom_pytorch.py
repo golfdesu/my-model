@@ -375,7 +375,8 @@ class EncoderDecoderTransformer(nn.Module):
         if inter_head_strength > 0.0 and self.num_heads > 1:
             w_heads_flat = stacked_qk.view(num_qk, self.num_heads, -1)
             head_norms = torch.norm(w_heads_flat, dim=-1, keepdim=True) + 1e-8
-            norm_gram = torch.bmm(w_heads_flat, w_heads_flat.transpose(1, 2)) / torch.bmm(head_norms, head_norms.transpose(1, 2))
+            # Use broadcast multiplication instead of torch.bmm to avoid triggering Triton JIT outer product on HPC
+            norm_gram = torch.bmm(w_heads_flat, w_heads_flat.transpose(1, 2)) / (head_norms * head_norms.transpose(1, 2))
             off_diag = norm_gram - torch.eye(self.num_heads, device=all_weights.device).unsqueeze(0)
             inter_loss = torch.sum(off_diag ** 2) / (num_qk * self.num_heads * (self.num_heads - 1))
             penalty = penalty + inter_head_strength * inter_loss
@@ -388,7 +389,8 @@ class EncoderDecoderTransformer(nn.Module):
             w_exo  = w_heads[:, mid:].reshape(num_qk, mid * self.head_dim, self.d_model)
             w_endo_norm = torch.norm(w_endo, dim=-1, keepdim=True) + 1e-8
             w_exo_norm  = torch.norm(w_exo, dim=-1, keepdim=True) + 1e-8
-            cross_cos = torch.bmm(w_endo, w_exo.transpose(1, 2)) / torch.bmm(w_endo_norm, w_exo_norm.transpose(1, 2))
+            # Use broadcast multiplication instead of torch.bmm to avoid triggering Triton JIT outer product on HPC
+            cross_cos = torch.bmm(w_endo, w_exo.transpose(1, 2)) / (w_endo_norm * w_exo_norm.transpose(1, 2))
             eeo_loss = torch.mean(cross_cos ** 2)
             penalty = penalty + eeo_strength * eeo_loss
 
