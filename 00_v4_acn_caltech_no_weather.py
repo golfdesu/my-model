@@ -407,9 +407,9 @@ WEIGHT_DECAY        = 2.346586192695657e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
-# Custom Regularization Hyperparameters (Intra-Matrix; no exogenous weather features)
+# Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity; no exogenous weather features)
 ATTN_ORTHOGONAL_REG = 0.009639757903159522
-INTER_HEAD_ORTHOGONAL_REG = 0.0
+INTER_HEAD_ORTHOGONAL_REG = 1.4283095121946924e-06
 EEO_ORTHOGONAL_REG = 0.0
 
 OUTPUT_STEM = "00_v4_acn_caltech_no_weather"

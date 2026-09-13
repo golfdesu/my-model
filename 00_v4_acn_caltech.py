@@ -410,9 +410,8 @@ LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
 ATTN_ORTHOGONAL_REG = 0.009639757903159522
-# To be updated from 00_hpo_v4_acn_caltech.py search results:
-INTER_HEAD_ORTHOGONAL_REG = 0.0
-EEO_ORTHOGONAL_REG = 0.0
+INTER_HEAD_ORTHOGONAL_REG = 1.4283095121946924e-06
+EEO_ORTHOGONAL_REG = 1.4283095121946924e-06
 
 OUTPUT_STEM = "00_v4_acn_caltech"
 output_json_filename = f"{OUTPUT_STEM}_results.json"
