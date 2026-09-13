@@ -378,7 +378,8 @@ class EncoderDecoderTransformer(nn.Module):
             # Use broadcast multiplication instead of torch.bmm to avoid triggering Triton JIT outer product on HPC
             norm_gram = torch.bmm(w_heads_flat, w_heads_flat.transpose(1, 2)) / (head_norms * head_norms.transpose(1, 2))
             off_diag = norm_gram - torch.eye(self.num_heads, device=all_weights.device).unsqueeze(0)
-            inter_loss = torch.sum(off_diag ** 2) / (num_qk * self.num_heads * (self.num_heads - 1))
+            # Summed across all 12 matrices to preserve exact mathematical parity with v4
+            inter_loss = torch.sum(off_diag ** 2) / (self.num_heads * (self.num_heads - 1))
             penalty = penalty + inter_head_strength * inter_loss
 
         # 3. Batched EEO Cross-Subspace Orthogonality (across all 12 Q and K matrices)
@@ -391,7 +392,8 @@ class EncoderDecoderTransformer(nn.Module):
             w_exo_norm  = torch.norm(w_exo, dim=-1, keepdim=True) + 1e-8
             # Use broadcast multiplication instead of torch.bmm to avoid triggering Triton JIT outer product on HPC
             cross_cos = torch.bmm(w_endo, w_exo.transpose(1, 2)) / (w_endo_norm * w_exo_norm.transpose(1, 2))
-            eeo_loss = torch.mean(cross_cos ** 2)
+            # Average within each matrix subspace and sum across all 12 matrices to preserve exact mathematical parity with v4
+            eeo_loss = torch.sum(torch.mean(cross_cos ** 2, dim=(1, 2)))
             penalty = penalty + eeo_strength * eeo_loss
 
         return penalty
