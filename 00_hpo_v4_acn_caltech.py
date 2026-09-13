@@ -1,19 +1,30 @@
 import os
 import sys
-import random
+import gc
 import json
+import time
+import warnings
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import optuna
 
+warnings.filterwarnings('ignore')
+
 # ==============================================================================
-# 0. Hardware & Environment Acceleration (Paper Invariants & H100 Hopper Setup)
+# 0. Hardware & Reproducibility Setup
 # ==============================================================================
+SEED = 42
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using Device: {device}")
 if device.type == 'cuda':
@@ -27,9 +38,7 @@ if device.type == 'cuda':
 # ==============================================================================
 data_path = '../data_cleaned/acn_caltech_ready2.csv'
 if not os.path.exists(data_path):
-    # Fallback to local or alternate path if run in different directory
-    alt_paths = ['data_cleaned/acn_caltech_ready2.csv', '../../data_cleaned/acn_caltech_ready2.csv']
-    for p in alt_paths:
+    for p in ['data_cleaned/acn_caltech_ready2.csv', '../../data_cleaned/acn_caltech_ready2.csv']:
         if os.path.exists(p):
             data_path = p
             break
@@ -39,26 +48,17 @@ df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
 df = df.sort_index()
 
-# Drop unneeded noise columns (Paper Invariants: prcp, tempDiff_48, cldc)
-drop_noise_cols = ['prcp', 'tempDiff_48', 'cldc']
-df = df.drop(columns=drop_noise_cols, errors='ignore')
+# Paper Invariants: Drop prcp, tempDiff_48, cldc
+df = df.drop(columns=['prcp', 'tempDiff_48', 'cldc'], errors='ignore')
 
-cols = []
+cols = [c for c in df.columns if c != 'kWhDelivered']
 for col in df.columns:
     df[col] = df[col].astype('float32')
-    if col != 'kWhDelivered':
-        cols.append(col)
-
-# EEO Feature Partition: Endogenous (Load + Calendar) vs Exogenous (Weather Physics)
-exo_col_names = ['temp', 'rhum', 'wspd', 'pres', 'apparent_temp', 'tempMean_48']
-exo_indices = [i for i, c in enumerate(cols) if c in exo_col_names]
-endo_indices = [i for i, c in enumerate(cols) if c not in exo_col_names]
 
 X = df[cols]
 y = df['kWhDelivered']
 
-print(f"Dataset Loaded successfully from {data_path}! Total Rows: {len(df)}, Features Count: {len(cols)}")
-print(f"  -> EEO Subspace Partition: {len(endo_indices)} Endogenous Features, {len(exo_indices)} Exogenous Weather Features")
+print(f"Dataset Loaded: {data_path} | Rows: {len(df)} | Features: {len(cols)}")
 
 # Train/Val/Test Split (60% / 20% / 20% Chronological Invariant)
 train_len = int(len(df) * 0.6)
@@ -70,7 +70,6 @@ X_val   = X[train_len : train_len + val_len]
 y_train = y[:train_len]
 y_val   = y[train_len : train_len + val_len]
 
-# Feature Scaling (Fit on Train only)
 scaler_X = MinMaxScaler()
 X_train_scaled = scaler_X.fit_transform(X_train)
 X_val_scaled   = scaler_X.transform(X_val)
@@ -79,7 +78,6 @@ scaler_y = MinMaxScaler()
 y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).flatten()
 y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1, 1)).flatten()
 
-# Windowing Constants
 LOOKBACK = 96
 HORIZON  = 48
 
@@ -90,14 +88,16 @@ def create_windowed_tensors(X_data, y_data, lookback, horizon):
         y_seq.append(y_data[i + lookback : i + lookback + horizon])
     return torch.tensor(np.array(X_seq, dtype=np.float32)), torch.tensor(np.array(y_seq, dtype=np.float32))
 
+print("Pre-building sequence tensors...")
 X_train_t, y_train_t = create_windowed_tensors(X_train_scaled, y_train_scaled, LOOKBACK, HORIZON)
 X_val_t, y_val_t     = create_windowed_tensors(X_val_scaled, y_val_scaled, LOOKBACK, HORIZON)
 
 train_dataset = TensorDataset(X_train_t, y_train_t)
 val_dataset   = TensorDataset(X_val_t, y_val_t)
 
+
 # ==============================================================================
-# 2. Model Architecture (Model 00 v4: Pre-LN RMSNorm + EEO-Attention)
+# 2. Fast Encoder-Decoder Seq2Seq Model (PyTorch C++/cuDNN Native FastPath)
 # ==============================================================================
 class PositionalEmbedding(nn.Module):
     def __init__(self, seq_len, d_model):
@@ -113,135 +113,67 @@ class PositionalEmbedding(nn.Module):
         return x + self.pe[:, :x.size(1), :]
 
 
-class RMSNorm(nn.Module):
-    def __init__(self, d_model, eps=1e-5):
-        super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.ones(d_model))
-
-    def forward(self, x):
-        variance = x.pow(2).mean(-1, keepdim=True)
-        return x * torch.rsqrt(variance + self.eps) * self.weight
-
-
 class EncoderDecoderTransformer(nn.Module):
-    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2,
-                 dropout_rate=0.05, endo_indices=None, exo_indices=None):
+    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2, dropout_rate=0.05):
         super().__init__()
         self.lookback = lookback
         self.horizon = horizon
         self.d_model = d_model
         self.num_layers = num_layers
-        self.endo_indices = endo_indices
-        self.exo_indices = exo_indices
 
-        # Dual-Stream Feature Projection (Endogenous vs Exogenous)
-        if endo_indices is not None and exo_indices is not None:
-            self.use_disentangled_proj = True
-            d_endo = d_model // 2
-            d_exo = d_model - d_endo
-            self.endo_proj = nn.Linear(len(endo_indices), d_endo)
-            self.exo_proj = nn.Linear(len(exo_indices), d_exo)
-        else:
-            self.use_disentangled_proj = False
-            self.enc_proj = nn.Linear(num_features, d_model)
-
+        # Encoder (Using PyTorch native TransformerEncoder for maximum cuDNN speed)
+        self.enc_proj = nn.Linear(num_features, d_model)
         self.pos_emb_enc = PositionalEmbedding(lookback, d_model)
         self.drop_enc = nn.Dropout(dropout_rate)
-
-        # Encoder Layers with Pre-LN RMSNorm
-        self.enc_norm1 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
-        self.enc_attn  = nn.ModuleList([nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate, batch_first=True) for _ in range(num_layers)])
-        self.enc_norm2 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
-        self.ffn_enc   = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(d_model, d_ff),
-                nn.GELU(),
-                nn.Dropout(dropout_rate),
-                nn.Linear(d_ff, d_model)
-            ) for _ in range(num_layers)
-        ])
-        self.enc_final_norm = RMSNorm(d_model)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=num_heads, dim_feedforward=d_ff, dropout=dropout_rate, batch_first=True, activation='relu'
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
         # Decoder
         self.pos_emb_dec = PositionalEmbedding(horizon, d_model)
         self.drop_dec = nn.Dropout(dropout_rate)
-        self.dec_norm1 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
-        self.dec_attn  = nn.ModuleList([nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate, batch_first=True) for _ in range(num_layers)])
-        self.dec_norm2 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
-        self.cross_attn = nn.ModuleList([nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate, batch_first=True) for _ in range(num_layers)])
-        self.dec_norm3 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
-        self.ffn_dec   = nn.ModuleList([
+        self.dec_attn = nn.ModuleList([
+            nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
+            for _ in range(num_layers)
+        ])
+        self.norm1_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
+        self.cross_attn = nn.ModuleList([
+            nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate, batch_first=True)
+            for _ in range(num_layers)
+        ])
+        self.norm2_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
+        self.ffn_dec = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(d_model, d_ff),
-                nn.GELU(),
-                nn.Dropout(dropout_rate),
-                nn.Linear(d_ff, d_model)
+                nn.Linear(d_model, d_ff), nn.ReLU(), nn.Dropout(dropout_rate), nn.Linear(d_ff, d_model), nn.Dropout(dropout_rate)
             ) for _ in range(num_layers)
         ])
-        self.dec_final_norm = RMSNorm(d_model)
-
-        # Final Regression Head
+        self.norm3_dec = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_layers)])
         self.out_head = nn.Linear(d_model, 1)
 
     def forward(self, x):
-        batch_size = x.size(0)
-
-        # Encoder
-        if self.use_disentangled_proj:
-            x_endo = x[:, :, self.endo_indices]
-            x_exo = x[:, :, self.exo_indices]
-            enc_feat = torch.cat([self.endo_proj(x_endo), self.exo_proj(x_exo)], dim=-1)
-        else:
-            enc_feat = self.enc_proj(x)
-
-        enc = self.drop_enc(self.pos_emb_enc(enc_feat))
-        for i in range(self.num_layers):
-            normed = self.enc_norm1[i](enc)
-            attn_out, _ = self.enc_attn[i](normed, normed, normed)
-            enc = enc + self.drop_enc(attn_out)
-
-            normed = self.enc_norm2[i](enc)
-            ffn_out = self.ffn_enc[i](normed)
-            enc = enc + self.drop_enc(ffn_out)
-
-        enc_out = self.enc_final_norm(enc)
-
-        # Decoder
-        dec_in = torch.zeros(batch_size, self.horizon, self.d_model, device=x.device)
+        bs = x.size(0)
+        enc_out = self.encoder(self.drop_enc(self.pos_emb_enc(self.enc_proj(x))))
+        dec_in = torch.zeros(bs, self.horizon, self.d_model, device=x.device)
         dec = self.drop_dec(self.pos_emb_dec(dec_in))
-
-        causal_mask = torch.triu(
-            torch.full((self.horizon, self.horizon), float('-inf'), device=x.device),
-            diagonal=1
-        )
-
+        c_mask = torch.triu(torch.full((self.horizon, self.horizon), float('-inf'), device=x.device), diagonal=1)
         for i in range(self.num_layers):
-            normed = self.dec_norm1[i](dec)
-            dec_attn_out, _ = self.dec_attn[i](normed, normed, normed, attn_mask=causal_mask)
-            dec = dec + self.drop_dec(dec_attn_out)
-
-            normed = self.dec_norm2[i](dec)
-            cross_attn_out, _ = self.cross_attn[i](query=normed, key=enc_out, value=enc_out)
-            dec = dec + self.drop_dec(cross_attn_out)
-
-            normed = self.dec_norm3[i](dec)
-            ffn_out = self.ffn_dec[i](normed)
-            dec = dec + self.drop_dec(ffn_out)
-
-        dec = self.dec_final_norm(dec)
+            da, _ = self.dec_attn[i](dec, dec, dec, attn_mask=c_mask)
+            dec = self.norm1_dec[i](dec + self.drop_dec(da))
+            ca, _ = self.cross_attn[i](query=dec, key=enc_out, value=enc_out)
+            dec = self.norm2_dec[i](dec + self.drop_dec(ca))
+            dec = self.norm3_dec[i](dec + self.ffn_dec[i](dec))
         out = self.out_head(dec).squeeze(-1)
         return out
 
 
-def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, eeo_strength=1e-5, num_heads=4):
+def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, num_heads=4):
     """
-    Tri-Component Orthogonal Regularization:
-    1. Intra-Matrix: strength * ||W^T W - I||_F^2
-    2. Inter-Head: inter_head_strength * off-diagonal cosine similarity squared across heads
-    3. EEO Cross-Subspace: eeo_strength * cross-domain cosine similarity squared between endo and exo heads
+    Calculates:
+    1. Intra-Matrix Orthogonality: ||W^T W - I||_F^2 on attention weight matrices.
+    2. Inter-Head Orthogonality: Cosine similarity of projection subspaces across heads.
     """
-    if strength <= 0.0 and inter_head_strength <= 0.0 and eeo_strength <= 0.0:
+    if strength <= 0.0 and inter_head_strength <= 0.0:
         return torch.tensor(0.0, device=device)
     penalty = torch.tensor(0.0, device=device)
     for name, param in model.named_parameters():
@@ -253,28 +185,13 @@ def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, e
                         wt_w = torch.matmul(w.t(), w)
                         identity = torch.eye(wt_w.size(0), device=param.device)
                         penalty = penalty + strength * torch.sum((wt_w - identity) ** 2)
-                    if (inter_head_strength > 0.0 or eeo_strength > 0.0) and idx_w in (0, 1) and num_heads > 1:
-                        head_dim = w.size(0) // num_heads
-                        w_heads = w.view(num_heads, head_dim, -1)
-
-                        if inter_head_strength > 0.0:
-                            w_heads_flat = w.view(num_heads, -1)
-                            head_norms = torch.norm(w_heads_flat, dim=1, keepdim=True) + 1e-8
-                            norm_gram = torch.matmul(w_heads_flat, w_heads_flat.t()) / torch.matmul(head_norms, head_norms.t())
-                            off_diag = norm_gram - torch.eye(num_heads, device=param.device)
-                            inter_loss = torch.sum(off_diag ** 2) / (num_heads * (num_heads - 1))
-                            penalty = penalty + inter_head_strength * inter_loss
-
-                        if eeo_strength > 0.0 and num_heads >= 4:
-                            mid = num_heads // 2
-                            w_endo = w_heads[:mid].reshape(mid * head_dim, -1)
-                            w_exo  = w_heads[mid:].reshape(mid * head_dim, -1)
-                            w_endo_norm = torch.norm(w_endo, dim=1, keepdim=True) + 1e-8
-                            w_exo_norm  = torch.norm(w_exo, dim=1, keepdim=True) + 1e-8
-                            cross_cos = torch.matmul(w_endo, w_exo.t()) / torch.matmul(w_endo_norm, w_exo_norm.t())
-                            eeo_loss = torch.mean(cross_cos ** 2)
-                            penalty = penalty + eeo_strength * eeo_loss
-
+                    if inter_head_strength > 0.0 and idx_w in (0, 1) and num_heads > 1:
+                        w_heads = w.view(num_heads, -1)
+                        head_norms = torch.norm(w_heads, dim=1, keepdim=True) + 1e-8
+                        norm_gram = torch.matmul(w_heads, w_heads.t()) / torch.matmul(head_norms, head_norms.t())
+                        off_diag = norm_gram - torch.eye(num_heads, device=param.device)
+                        inter_loss = torch.sum(off_diag ** 2) / (num_heads * (num_heads - 1))
+                        penalty = penalty + inter_head_strength * inter_loss
             elif 'out_proj.weight' in name or 'q_proj_weight' in name or 'k_proj_weight' in name or 'v_proj_weight' in name:
                 if strength > 0.0:
                     wt_w = torch.matmul(param.t(), param)
@@ -284,7 +201,7 @@ def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, e
 
 
 # ==============================================================================
-# 3. Optuna Objective (Locked Architecture to Caltech Model 03 Baseline)
+# 3. 1D Optuna Objective (Locking Architecture to Caltech Model 03 Baseline)
 # ==============================================================================
 LOCKED_D_MODEL       = 64
 LOCKED_NUM_HEADS     = 4
@@ -297,9 +214,8 @@ LOCKED_BATCH_SIZE    = 64
 LOCKED_INTRA_ORTHO   = 0.009639757903159522
 
 def objective(trial):
-    # Optimize Inter-Head Diversity and EEO Cross-Subspace Regularization
+    # Optimize Inter-Head Orthogonal Regularization Strength (1D Search)
     inter_head_orthogonal_reg = trial.suggest_float('inter_head_orthogonal_reg', 1e-6, 1e-2, log=True)
-    eeo_orthogonal_reg        = trial.suggest_float('eeo_orthogonal_reg', 1e-6, 1e-2, log=True)
 
     train_loader = DataLoader(train_dataset, batch_size=LOCKED_BATCH_SIZE, shuffle=True, drop_last=True, pin_memory=(device.type == 'cuda'))
     val_loader   = DataLoader(val_dataset, batch_size=LOCKED_BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
@@ -312,9 +228,7 @@ def objective(trial):
         num_heads=LOCKED_NUM_HEADS,
         d_ff=LOCKED_D_FF,
         num_layers=LOCKED_NUM_LAYERS,
-        dropout_rate=LOCKED_DROPOUT,
-        endo_indices=endo_indices,
-        exo_indices=exo_indices
+        dropout_rate=LOCKED_DROPOUT
     ).to(device)
 
     criterion = nn.MSELoss()
@@ -336,14 +250,12 @@ def objective(trial):
                 model,
                 strength=LOCKED_INTRA_ORTHO,
                 inter_head_strength=inter_head_orthogonal_reg,
-                eeo_strength=eeo_orthogonal_reg,
                 num_heads=LOCKED_NUM_HEADS
             )
             loss = mse_loss + ortho_loss
             loss.backward()
             optimizer.step()
 
-        # Validation
         model.eval()
         val_loss = 0.0
         with torch.inference_mode():
@@ -373,25 +285,25 @@ def objective(trial):
 # ==============================================================================
 if __name__ == '__main__':
     print("=" * 65)
-    print("🚀 Model 00 v4 Optuna HPO (35 Trials)")
+    print("🚀 Custom Seq2Seq Transformer Fast Optuna HPO (30 Trials)")
     print("=" * 65)
     print("Target Dataset          : ACN Caltech (with Weather)")
     print(f"Locked Intra-Matrix Reg : {LOCKED_INTRA_ORTHO}")
     print(f"Locked Architecture     : d_model={LOCKED_D_MODEL}, heads={LOCKED_NUM_HEADS}, d_ff={LOCKED_D_FF}, batch={LOCKED_BATCH_SIZE}")
-    print("Searching Parameters   : inter_head_orthogonal_reg, eeo_orthogonal_reg\n")
+    print("Searching Parameter     : inter_head_orthogonal_reg (1D Search, 30 trials)...\n")
     optuna.logging.set_verbosity(optuna.logging.INFO)
 
     study = optuna.create_study(
         sampler=optuna.samplers.TPESampler(seed=42),
         pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=5),
         direction="minimize",
-        study_name="00_hpo_v4_acn_caltech"
+        study_name="00_hpo_v4_acn_caltech_inter_head"
     )
 
-    study.optimize(objective, n_trials=35)
+    study.optimize(objective, n_trials=30)
 
     print("\n" + "=" * 65)
-    print("🏆 BEST HYPERPARAMETERS FOUND (CALTECH MODEL 00 v4):")
+    print("🏆 BEST HYPERPARAMETERS FOUND (INTER-HEAD REGULARIZATION):")
     print("=" * 65)
     for key, val in study.best_params.items():
         print(f"  - {key:<25}: {val}")
@@ -414,9 +326,8 @@ if __name__ == '__main__':
     best_data = {
         "model_name": "00_hpo_v4_acn_caltech",
         "dataset": "acn_caltech",
-        "with_weather": True,
-        "search_mode": "2D_ORTHOGONAL_DIVERSITY_AND_EEO_ABLATION",
-        "architecture_paradigm": "encoder_decoder_seq2seq_eeo_attention",
+        "search_mode": "1D_INTER_HEAD_ORTHOGONAL_REG_ABLATION",
+        "architecture_paradigm": "encoder_decoder_seq2seq",
         "base_model": "03_tfm_encdec_pytorch",
         "locked_params": {
             "d_model": LOCKED_D_MODEL,
@@ -439,7 +350,7 @@ if __name__ == '__main__':
 
     with open(output_json, "w", encoding="utf-8") as f:
         json.dump(best_data, f, indent=4)
-    print(f"Saved best params to {output_json}")
+    print(f"\nSaved best parameters to {output_json}")
 
     # Also archive in outputs directory
     archive_dir = os.path.join("outputs", "acn_caltech", "00_v4")
