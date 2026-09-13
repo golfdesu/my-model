@@ -433,7 +433,7 @@ results_data = {
     "inter_head_orthogonal_reg_strength": INTER_HEAD_ORTHOGONAL_REG,
     "eeo_orthogonal_reg_strength": EEO_ORTHOGONAL_REG,
     "num_endo_features": len(endo_indices),
-    "num_exo_features": len(exo_indices),
+    "num_exo_features": 0,
     "dataset": "acn_jpl_ready",
     "with_weather": False,
     "seeds": {},
