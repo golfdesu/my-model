@@ -13,6 +13,7 @@
 !AGENTS.md
 !CLAUDE.md
 !*.sbatch
+!*.sh
 
 # 3. Keep ignoring duplicated "*_fix" copies of numbered scripts
 *[0-9]*fix
