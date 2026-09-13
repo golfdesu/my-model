@@ -323,6 +323,7 @@ if __name__ == '__main__':
         for rank, t in enumerate(completed_trials[:10])
     ]
 
+    best_val_inter_head = study.best_params["inter_head_orthogonal_reg"]
     best_data = {
         "model_name": "00_hpo_v4_acn_caltech",
         "dataset": "acn_caltech",
@@ -343,7 +344,8 @@ if __name__ == '__main__':
         "best_val_loss": float(study.best_value),
         "best_params": {
             "attn_orthogonal_reg": LOCKED_INTRA_ORTHO,
-            **study.best_params
+            "inter_head_orthogonal_reg": best_val_inter_head,
+            "eeo_orthogonal_reg": best_val_inter_head
         },
         "top_10_trials": top_10
     }
