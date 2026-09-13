@@ -324,7 +324,7 @@ LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity)
 ATTN_ORTHOGONAL_REG = 4.207053950287936e-06
-INTER_HEAD_ORTHOGONAL_REG = 4.207053950287936e-06
+INTER_HEAD_ORTHOGONAL_REG = 3.1489116479568635e-05
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
@@ -582,6 +582,7 @@ results_data["config"] = {
     "dropout_rate": DROPOUT_RATE,
     "weight_decay": WEIGHT_DECAY,
     "attn_orthogonal_reg": ATTN_ORTHOGONAL_REG,
+    "inter_head_orthogonal_reg": INTER_HEAD_ORTHOGONAL_REG,
     "learning_rate": LEARNING_RATE,
     "total_parameters": results_data.get("total_parameters", None)
 }
@@ -589,4 +590,13 @@ results_data["summary"] = summary_dict
 with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
 print(f"Successfully saved final results to {output_json_filename}")
+
+# Automatically archive artifacts to outputs/acn_jpn/00_v2
+import shutil
+output_v2_dir = os.path.join("outputs", "acn_jpn", "00_v2")
+os.makedirs(output_v2_dir, exist_ok=True)
+for fname in [output_json_filename, "00_tfm_custom_pytorch_best.pt", "00_tfm_custom_pytorch_predictions.npz"]:
+    if os.path.exists(fname):
+        shutil.copy(fname, os.path.join(output_v2_dir, fname))
+print(f"Successfully archived all artifacts to {output_v2_dir}/")
 print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")

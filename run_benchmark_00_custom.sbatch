@@ -90,7 +90,11 @@ ELAPSED_MIN=$((DIFF_TIME / 60))
 echo "=============================================================================="
 if [ ${EXIT_CODE} -eq 0 ]; then
     echo ">>> [SUCCESS] Model 00 Custom Transformer COMPLETED in ${ELAPSED_MIN}m (${DIFF_TIME}s)"
-    echo "Outputs saved to: 00_tfm_custom_pytorch_results.json, 00_tfm_custom_pytorch_best.pt, 00_tfm_custom_pytorch_predictions.npz"
+    mkdir -p outputs/acn_jpn/00_v2
+    cp 00_tfm_custom_pytorch_results.json outputs/acn_jpn/00_v2/ 2>/dev/null || true
+    cp 00_tfm_custom_pytorch_best.pt outputs/acn_jpn/00_v2/ 2>/dev/null || true
+    cp 00_tfm_custom_pytorch_predictions.npz outputs/acn_jpn/00_v2/ 2>/dev/null || true
+    echo "Outputs archived to: outputs/acn_jpn/00_v2/ and root directory"
 else
     echo ">>> [FAILED]  Model 00 Custom Transformer FAILED with exit code ${EXIT_CODE} after ${ELAPSED_MIN}m (${DIFF_TIME}s)"
 fi
