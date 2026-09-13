@@ -64,7 +64,7 @@ All models are strictly evaluated under non-negotiable scientific ground truths 
 
 | ID | Model Script | Key Mechanism / Paradigm | Provenance / Canonical Reference |
 |:---|:---|:---|:---|
-| **00** | `00_tfm_custom_pytorch.py` | **Proposed Custom Transformer** (EEO-Attention + Fused FastMHA) | **Thesis Contribution** |
+| **00** | `00_tfm_custom_pytorch.py` | **Proposed Custom Transformer** (EEO-Attention + Fused QKV Fast Attention) | **Thesis Contribution** |
 | **01** | `01_tfm_enc_pytorch.py` | Vanilla Transformer Encoder | Vaswani et al. (NeurIPS 2017) |
 | **02** | `02_tfm_dec_pytorch.py` | Vanilla Transformer Decoder (Causal Autoregressive) | Vaswani et al. (NeurIPS 2017) |
 | **03** | `03_tfm_encdec_pytorch.py` | Full Seq2Seq Transformer (Cross-Attention) | Vaswani et al. (NeurIPS 2017) |

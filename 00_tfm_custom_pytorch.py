@@ -169,13 +169,56 @@ class RMSNorm(nn.Module):
         return x * torch.rsqrt(variance + self.eps) * self.weight
 
 
-class FastMHA(nn.Module):
+class FastSelfAttention(nn.Module):
     """
-    Hardware-Accelerated Scaled Dot-Product Multi-Head Attention (FastMHA)
-    (MLE Foundations Topic 151; FlashAttention & Online Softmax Math).
-    Replaces standard un-fused MultiheadAttention with PyTorch native F.scaled_dot_product_attention.
-    Executes directly in on-chip SRAM via fused FlashAttention-2 / cuDNN kernels on NVIDIA H100
-    without materializing intermediate N x N attention matrices in high-bandwidth memory (HBM).
+    Hardware-Accelerated Fused-QKV Scaled Dot-Product Self-Attention
+    (MLE Foundations Topic 11: Matrix Multiplication & Topic 53: Tensor Shapes & Einsum; Topic 151: SDPA).
+    Fuses Query, Key, and Value linear projections into a single large GEMM kernel:
+      X @ W_qkv^T  (where W_qkv in R^[3 * d_model, d_model])
+    Eliminates 2 out of 3 kernel launches per self-attention sublayer and executes directly in SRAM.
+    """
+    def __init__(self, embed_dim, num_heads, dropout=0.0):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+
+        self.qkv_proj = nn.Linear(embed_dim, 3 * embed_dim)
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        self.dropout_p = dropout
+
+    def forward(self, x, is_causal=False):
+        B, S, _ = x.shape
+        # Single fused GEMM projection -> [B, S, 3, num_heads, head_dim] -> permute to [3, B, num_heads, S, head_dim]
+        qkv = self.qkv_proj(x).view(B, S, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        drop_p = self.dropout_p if self.training else 0.0
+        attn_out = F.scaled_dot_product_attention(q, k, v, dropout_p=drop_p, is_causal=is_causal)
+        attn_out = attn_out.transpose(1, 2).reshape(B, S, self.embed_dim)
+        return self.out_proj(attn_out)
+
+    @property
+    def q_weight(self):
+        return self.qkv_proj.weight[:self.embed_dim]
+
+    @property
+    def k_weight(self):
+        return self.qkv_proj.weight[self.embed_dim : 2 * self.embed_dim]
+
+    @property
+    def v_weight(self):
+        return self.qkv_proj.weight[2 * self.embed_dim :]
+
+
+class FastCrossAttention(nn.Module):
+    """
+    Hardware-Accelerated Fused-KV Scaled Dot-Product Cross-Attention
+    (MLE Foundations Topic 11: Matrix Multiplication & Topic 151: SDPA).
+    Fuses Key and Value projections from encoder context into a single GEMM kernel:
+      enc_out @ W_kv^T  (where W_kv in R^[2 * d_model, d_model])
+    Query is projected separately from decoder state: dec_norm @ W_q^T
     """
     def __init__(self, embed_dim, num_heads, dropout=0.0):
         super().__init__()
@@ -185,23 +228,34 @@ class FastMHA(nn.Module):
         assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
 
         self.q_proj = nn.Linear(embed_dim, embed_dim)
-        self.k_proj = nn.Linear(embed_dim, embed_dim)
-        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.kv_proj = nn.Linear(embed_dim, 2 * embed_dim)
         self.out_proj = nn.Linear(embed_dim, embed_dim)
         self.dropout_p = dropout
 
-    def forward(self, query, key, value, is_causal=False):
+    def forward(self, query, key_val):
         B, Sq, _ = query.shape
-        _, Sk, _ = key.shape
+        _, Sk, _ = key_val.shape
 
         q = self.q_proj(query).view(B, Sq, self.num_heads, self.head_dim).transpose(1, 2)
-        k = self.k_proj(key).view(B, Sk, self.num_heads, self.head_dim).transpose(1, 2)
-        v = self.v_proj(value).view(B, Sk, self.num_heads, self.head_dim).transpose(1, 2)
+        kv = self.kv_proj(key_val).view(B, Sk, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        k, v = kv[0], kv[1]
 
         drop_p = self.dropout_p if self.training else 0.0
-        attn_out = F.scaled_dot_product_attention(q, k, v, dropout_p=drop_p, is_causal=is_causal)
+        attn_out = F.scaled_dot_product_attention(q, k, v, dropout_p=drop_p, is_causal=False)
         attn_out = attn_out.transpose(1, 2).reshape(B, Sq, self.embed_dim)
         return self.out_proj(attn_out)
+
+    @property
+    def q_weight(self):
+        return self.q_proj.weight
+
+    @property
+    def k_weight(self):
+        return self.kv_proj.weight[:self.embed_dim]
+
+    @property
+    def v_weight(self):
+        return self.kv_proj.weight[self.embed_dim :]
 
 
 class EncoderDecoderTransformer(nn.Module):
@@ -216,7 +270,8 @@ class EncoderDecoderTransformer(nn.Module):
     - Pre-LN Residual Highway: Normalization precedes multi-head attention and FFN,
       guaranteeing an unimpeded gradient flow without vanishing gradients.
     - RMSNorm: Eliminates mean shift computation to enforce scale invariance and stabilize attention condition numbers.
-    - Fused FastMHA: Fused Scaled Dot-Product Attention (SDPA) with hardware SRAM tiling (Topic 151).
+    - Fused FastSelfAttention & FastCrossAttention: Hardware-accelerated Fused-QKV single GEMM projection (Topic 11 & 53)
+      with FlashAttention-2 / cuDNN on-chip SRAM tiling (Topic 151).
     - Vectorized Batched Orthogonal Regularization: Closed-form batched matrix multiplication (torch.bmm)
       across all attention projections simultaneously (Topic 15 & 21).
     - Output Head: Token-wise Linear projection (d_model -> 1) squeezed to [batch, horizon].
@@ -247,8 +302,9 @@ class EncoderDecoderTransformer(nn.Module):
         self.pos_emb_enc = PositionalEmbedding(lookback, d_model)
         self.drop_enc = nn.Dropout(dropout_rate)
 
+        # Fused-QKV Self-Attention Layers (Encoder)
         self.enc_attn = nn.ModuleList([
-            FastMHA(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
+            FastSelfAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
             for _ in range(num_layers)
         ])
         self.enc_norm1 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
@@ -267,14 +323,16 @@ class EncoderDecoderTransformer(nn.Module):
         self.pos_emb_dec = PositionalEmbedding(horizon, d_model)
         self.drop_dec = nn.Dropout(dropout_rate)
 
+        # Fused-QKV Self-Attention Layers (Decoder)
         self.dec_attn = nn.ModuleList([
-            FastMHA(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
+            FastSelfAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
             for _ in range(num_layers)
         ])
         self.dec_norm1 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
 
+        # Fused-KV Cross-Attention Layers (Decoder -> Encoder Context)
         self.cross_attn = nn.ModuleList([
-            FastMHA(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
+            FastCrossAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
             for _ in range(num_layers)
         ])
         self.dec_norm2 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
@@ -311,7 +369,7 @@ class EncoderDecoderTransformer(nn.Module):
         enc = self.drop_enc(self.pos_emb_enc(enc_feat))
         for i in range(self.num_layers):
             normed = self.enc_norm1[i](enc)
-            attn_out = self.enc_attn[i](normed, normed, normed, is_causal=False)
+            attn_out = self.enc_attn[i](normed, is_causal=False)
             enc = enc + self.drop_enc(attn_out)
 
             normed = self.enc_norm2[i](enc)
@@ -327,11 +385,11 @@ class EncoderDecoderTransformer(nn.Module):
         for i in range(self.num_layers):
             normed = self.dec_norm1[i](dec)
             # Fused SDPA causal masking (is_causal=True) executes directly in SRAM without materializing mask tensor
-            dec_attn_out = self.dec_attn[i](normed, normed, normed, is_causal=True)
+            dec_attn_out = self.dec_attn[i](normed, is_causal=True)
             dec = dec + self.drop_dec(dec_attn_out)
 
             normed = self.dec_norm2[i](dec)
-            cross_attn_out = self.cross_attn[i](query=normed, key=enc_out, value=enc_out, is_causal=False)
+            cross_attn_out = self.cross_attn[i](query=normed, key_val=enc_out)
             dec = dec + self.drop_dec(cross_attn_out)
 
             normed = self.dec_norm3[i](dec)
@@ -353,9 +411,9 @@ class EncoderDecoderTransformer(nn.Module):
         if strength <= 0.0 and inter_head_strength <= 0.0 and eeo_strength <= 0.0:
             return torch.tensor(0.0, device=self.out_head.weight.device)
 
-        q_weights = [layer.q_proj.weight for layer in self.all_attn_layers]
-        k_weights = [layer.k_proj.weight for layer in self.all_attn_layers]
-        v_weights = [layer.v_proj.weight for layer in self.all_attn_layers]
+        q_weights = [layer.q_weight for layer in self.all_attn_layers]
+        k_weights = [layer.k_weight for layer in self.all_attn_layers]
+        v_weights = [layer.v_weight for layer in self.all_attn_layers]
         out_weights = [layer.out_proj.weight for layer in self.all_attn_layers]
 
         stacked_qk = torch.stack(q_weights + k_weights, dim=0) # [12, d_model, d_model]
@@ -461,9 +519,9 @@ EEO_ORTHOGONAL_REG = 3.1489116479568635e-05
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
     "model_name": "00_tfm_custom_pytorch",
-    "architecture_paradigm": "encoder_decoder_seq2seq_fast_fused_eeo",
+    "architecture_paradigm": "encoder_decoder_seq2seq_fast_fused_qkv_eeo",
     "base_model": "03_tfm_encdec_pytorch",
-    "version": "v5",
+    "version": "v6",
     "active_custom_features": [
         "encoder_decoder_cross_attention",
         "attention_orthogonal_regularization",
@@ -471,6 +529,7 @@ results_data = {
         "pre_ln_rmsnorm_backbone",
         "disentangled_eeo_attention",
         "fast_sdpa_fused_attention",
+        "fused_in_projection_qkv_gemm",
         "vectorized_batched_orthogonal_regularization",
         "zero_copy_gpu_resident_tensors"
     ],
@@ -584,10 +643,11 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         # Validation
         model.eval()
         val_loss = 0.0
+        eval_batch_size = 1024
         with torch.inference_mode():
-            for v_i in range(0, n_val, BATCH_SIZE):
-                batch_X = X_val_dev[v_i : v_i + BATCH_SIZE]
-                batch_y = y_val_dev[v_i : v_i + BATCH_SIZE]
+            for v_i in range(0, n_val, eval_batch_size):
+                batch_X = X_val_dev[v_i : v_i + eval_batch_size]
+                batch_y = y_val_dev[v_i : v_i + eval_batch_size]
                 out = model(batch_X)
                 loss = criterion(out, batch_y)
                 val_loss += loss.item() * batch_X.size(0)
@@ -616,9 +676,10 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     # Inference on Test Set
     model.eval()
     y_pred_list = []
+    eval_batch_size = 1024
     with torch.inference_mode():
-        for t_i in range(0, n_test, BATCH_SIZE):
-            batch_X = X_test_dev[t_i : t_i + BATCH_SIZE]
+        for t_i in range(0, n_test, eval_batch_size):
+            batch_X = X_test_dev[t_i : t_i + eval_batch_size]
             out = model(batch_X)
             y_pred_list.append(out.cpu().numpy())
 
@@ -743,12 +804,12 @@ with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
 print(f"Successfully saved final results to {output_json_filename}")
 
-# Automatically archive artifacts to outputs/acn_jpn/00_v5
+# Automatically archive artifacts to outputs/acn_jpn/00_v6
 import shutil
-output_v5_dir = os.path.join("outputs", "acn_jpn", "00_v5")
-os.makedirs(output_v5_dir, exist_ok=True)
+output_v6_dir = os.path.join("outputs", "acn_jpn", "00_v6")
+os.makedirs(output_v6_dir, exist_ok=True)
 for fname in [output_json_filename, "00_tfm_custom_pytorch_best.pt", "00_tfm_custom_pytorch_predictions.npz"]:
     if os.path.exists(fname):
-        shutil.copy(fname, os.path.join(output_v5_dir, fname))
-print(f"Successfully archived all artifacts to {output_v5_dir}/")
+        shutil.copy(fname, os.path.join(output_v6_dir, fname))
+print(f"Successfully archived all artifacts to {output_v6_dir}/")
 print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
