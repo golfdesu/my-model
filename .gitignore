@@ -44,5 +44,6 @@ secret vault.txt
 *_results.json
 *_predictions.npz
 *_best.pt
+*_best_params*.json
 outputs/
 outputs/**

@@ -62,19 +62,19 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # ==============================================================================
-# 1. Dataset Loading & Preprocessing (Identical to 01)
+# 1. Dataset Loading & Preprocessing (JPL with Weather)
 # ==============================================================================
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
 df = df.sort_index()  # safety: enforce chronological order before time-based split
 
-# Drop unneeded columns (Paper Invariants: prcp, tempDiff_48, cldc)
-# Drop weather features (Ablation study: without weather)
-weather_cols = ['temp', 'rhum', 'prcp', 'wspd', 'pres', 'cldc', 'apparent_temp', 'tempDiff_48', 'tempMean_48']
-df = df.drop(columns=weather_cols, errors='ignore')
+# Drop unneeded noise columns (Paper Invariants: prcp, tempDiff_48, cldc)
+# Keeping weather features intact (temp, rhum, wspd, pres, apparent_temp, tempMean_48)
+drop_noise_cols = ['prcp', 'tempDiff_48', 'cldc']
+df = df.drop(columns=drop_noise_cols, errors='ignore')
 
 cols = []
 for col in df.columns:
@@ -239,34 +239,42 @@ class EncoderDecoderTransformer(nn.Module):
 
 
 # ==============================================================================
-# 4. Custom Feature: Attention Orthogonal Regularization
+# 4. Custom Feature: Attention Orthogonal Regularization (Intra + Inter-Head)
 # ==============================================================================
-def compute_orthogonal_penalty(model, strength=1e-5):
+def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, num_heads=8):
     """
-    [ACTIVE CUSTOM FEATURE]
-    Penalizes weight matrices that deviate from orthogonality: strength * ||W^T W - I||_F^2
-    Applied to:
-    1. Encoder Self-Attention projection weights (W_Q, W_K, W_V, W_O)
-    2. Decoder Masked Self-Attention projection weights (W_Q, W_K, W_V, W_O)
-    3. Decoder Cross-Attention projection weights (W_Q, W_K, W_V, W_O)
-    Reduces condition number, mitigates head collapse, and enforces diverse subspace projections.
+    [ACTIVE CUSTOM FEATURE: Intra-Matrix + Inter-Head Orthogonal Regularization]
+    1. Intra-Matrix Orthogonality: strength * ||W^T W - I||_F^2
+       Applied to W_Q, W_K, W_V, W_O across encoder, decoder self-attn, and cross-attn.
+    2. Inter-Head Orthogonality: inter_head_strength * (off-diagonal cosine similarity)^2
+       Enforces diverse, non-redundant subspace representations across attention heads for W_Q and W_K.
     """
-    if strength <= 0.0:
+    if strength <= 0.0 and inter_head_strength <= 0.0:
         return torch.tensor(0.0, device=device)
     penalty = torch.tensor(0.0, device=device)
     for name, param in model.named_parameters():
         if param.ndim == 2:
             if 'in_proj_weight' in name:
                 # MultiheadAttention packs Q, K, V along dim 0: shape [3 * d_model, d_model]
-                for w in param.chunk(3, dim=0):
-                    wt_w = torch.matmul(w.t(), w)
-                    identity = torch.eye(wt_w.size(0), device=param.device)
-                    penalty = penalty + torch.sum((wt_w - identity) ** 2)
+                chunks = param.chunk(3, dim=0)
+                for idx_w, w in enumerate(chunks):
+                    if strength > 0.0:
+                        wt_w = torch.matmul(w.t(), w)
+                        identity = torch.eye(wt_w.size(0), device=param.device)
+                        penalty = penalty + strength * torch.sum((wt_w - identity) ** 2)
+                    if inter_head_strength > 0.0 and idx_w in (0, 1) and num_heads > 1:
+                        w_heads = w.view(num_heads, -1)
+                        head_norms = torch.norm(w_heads, dim=1, keepdim=True) + 1e-8
+                        norm_gram = torch.matmul(w_heads, w_heads.t()) / torch.matmul(head_norms, head_norms.t())
+                        off_diag = norm_gram - torch.eye(num_heads, device=param.device)
+                        inter_loss = torch.sum(off_diag ** 2) / (num_heads * (num_heads - 1))
+                        penalty = penalty + inter_head_strength * inter_loss
             elif 'out_proj.weight' in name or 'q_proj_weight' in name or 'k_proj_weight' in name or 'v_proj_weight' in name:
-                wt_w = torch.matmul(param.t(), param)
-                identity = torch.eye(wt_w.size(0), device=param.device)
-                penalty = penalty + torch.sum((wt_w - identity) ** 2)
-    return strength * penalty
+                if strength > 0.0:
+                    wt_w = torch.matmul(param.t(), param)
+                    identity = torch.eye(wt_w.size(0), device=param.device)
+                    penalty = penalty + strength * torch.sum((wt_w - identity) ** 2)
+    return penalty
 
 
 # ==============================================================================
@@ -300,22 +308,23 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 64    # Seq2Seq optimal batch size
+BATCH_SIZE = 128    # Seq2Seq optimal batch size for JPL
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Matching Seq2Seq optimal baseline 03)
-D_MODEL             = 64
-NUM_HEADS           = 4
-D_FF                = 128
+# Hyperparameters (Matching Seq2Seq optimal baseline 03 on JPL with weather)
+D_MODEL             = 128
+NUM_HEADS           = 8
+D_FF                = 512
 NUM_LAYERS          = 2
-DROPOUT_RATE        = 0.05
-LEARNING_RATE       = 0.00032030989447217294
-WEIGHT_DECAY        = 2.346586192695657e-06
+DROPOUT_RATE        = 0.1
+LEARNING_RATE       = 0.0006097839109531517
+WEIGHT_DECAY        = 3.972110727381911e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
-# Custom Regularization Hyperparameter (Attention Orthogonal Regularization Strength)
-ATTN_ORTHOGONAL_REG = 0.009639757903159522
+# Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity)
+ATTN_ORTHOGONAL_REG = 4.207053950287936e-06
+INTER_HEAD_ORTHOGONAL_REG = 4.207053950287936e-06
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
@@ -324,9 +333,13 @@ results_data = {
     "base_model": "03_tfm_encdec_pytorch",
     "active_custom_features": [
         "encoder_decoder_cross_attention",
-        "attention_orthogonal_regularization"
+        "attention_orthogonal_regularization",
+        "inter_head_orthogonal_regularization"
     ],
     "attn_orthogonal_reg_strength": ATTN_ORTHOGONAL_REG,
+    "inter_head_orthogonal_reg_strength": INTER_HEAD_ORTHOGONAL_REG,
+    "dataset": "acn_jpl_ready",
+    "with_weather": True,
     "seeds": {},
     "summary": {}
 }
@@ -404,7 +417,12 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
             
             # Primary MSE Loss + [ACTIVE CUSTOM FEATURE] Attention Orthogonal Regularization
             mse_loss = criterion(out, batch_y)
-            ortho_loss = compute_orthogonal_penalty(model, ATTN_ORTHOGONAL_REG)
+            ortho_loss = compute_orthogonal_penalty(
+                model,
+                strength=ATTN_ORTHOGONAL_REG,
+                inter_head_strength=INTER_HEAD_ORTHOGONAL_REG,
+                num_heads=NUM_HEADS
+            )
             loss = mse_loss + ortho_loss
 
             loss.backward()

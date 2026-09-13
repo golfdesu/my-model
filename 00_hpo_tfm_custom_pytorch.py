@@ -70,8 +70,8 @@ if device.type == 'cuda':
     torch.backends.cudnn.allow_tf32 = True
     torch.backends.cudnn.benchmark = True
 
-# Data Loading & Preprocessing (Paper Invariants: Caltech Ready2)
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+# Data Loading & Preprocessing (Paper Invariants: JPL Ready)
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
@@ -190,39 +190,54 @@ class EncoderDecoderTransformer(nn.Module):
         return out
 
 
-def compute_orthogonal_penalty(model, strength):
-    """Calculates ||W^T W - I||_F^2 on self- and cross-attention weight matrices"""
-    if strength <= 0.0:
+def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, num_heads=8):
+    """
+    Calculates:
+    1. Intra-Matrix Orthogonality: ||W^T W - I||_F^2 on self- and cross-attention weight matrices.
+    2. Inter-Head Orthogonality: Cosine similarity of projection subspaces across heads to eliminate head redundancy.
+    """
+    if strength <= 0.0 and inter_head_strength <= 0.0:
         return torch.tensor(0.0, device=device)
     penalty = torch.tensor(0.0, device=device)
     for name, param in model.named_parameters():
         if param.ndim == 2:
             if 'in_proj_weight' in name:
-                for w in param.chunk(3, dim=0):
-                    wt_w = torch.matmul(w.t(), w)
-                    identity = torch.eye(wt_w.size(0), device=param.device)
-                    penalty = penalty + torch.sum((wt_w - identity) ** 2)
+                chunks = param.chunk(3, dim=0)
+                for idx_w, w in enumerate(chunks):
+                    if strength > 0.0:
+                        wt_w = torch.matmul(w.t(), w)
+                        identity = torch.eye(wt_w.size(0), device=param.device)
+                        penalty = penalty + strength * torch.sum((wt_w - identity) ** 2)
+                    if inter_head_strength > 0.0 and idx_w in (0, 1) and num_heads > 1:
+                        w_heads = w.view(num_heads, -1)
+                        head_norms = torch.norm(w_heads, dim=1, keepdim=True) + 1e-8
+                        norm_gram = torch.matmul(w_heads, w_heads.t()) / torch.matmul(head_norms, head_norms.t())
+                        off_diag = norm_gram - torch.eye(num_heads, device=param.device)
+                        inter_loss = torch.sum(off_diag ** 2) / (num_heads * (num_heads - 1))
+                        penalty = penalty + inter_head_strength * inter_loss
             elif 'out_proj.weight' in name or 'q_proj_weight' in name or 'k_proj_weight' in name or 'v_proj_weight' in name:
-                wt_w = torch.matmul(param.t(), param)
-                identity = torch.eye(wt_w.size(0), device=param.device)
-                penalty = penalty + torch.sum((wt_w - identity) ** 2)
-    return strength * penalty
+                if strength > 0.0:
+                    wt_w = torch.matmul(param.t(), param)
+                    identity = torch.eye(wt_w.size(0), device=param.device)
+                    penalty = penalty + strength * torch.sum((wt_w - identity) ** 2)
+    return penalty
 
 # ==============================================================================
-# 3. 1D Optuna Objective (Locking Architecture to 03 Seq2Seq Baseline)
+# 3. 1D Optuna Objective (Locking Architecture to 03 Seq2Seq Baseline on JPL)
 # ==============================================================================
-LOCKED_D_MODEL       = 64
-LOCKED_NUM_HEADS     = 4
-LOCKED_D_FF          = 128
+LOCKED_D_MODEL       = 128
+LOCKED_NUM_HEADS     = 8
+LOCKED_D_FF          = 512
 LOCKED_NUM_LAYERS    = 2
-LOCKED_DROPOUT       = 0.05
-LOCKED_LR            = 0.00032030989447217294
-LOCKED_WEIGHT_DECAY  = 2.346586192695657e-06
-LOCKED_BATCH_SIZE    = 64
+LOCKED_DROPOUT       = 0.1
+LOCKED_LR            = 0.0006097839109531517
+LOCKED_WEIGHT_DECAY  = 3.972110727381911e-06
+LOCKED_BATCH_SIZE    = 128
+LOCKED_INTRA_ORTHO   = 4.207053950287936e-06
 
 def objective(trial):
-    # Sole hyperparameter to optimize: Attention Orthogonal Regularization Strength
-    attn_orthogonal_reg = trial.suggest_float('attn_orthogonal_reg', 1e-6, 1e-2, log=True)
+    # Optimize Inter-Head Orthogonal Regularization Strength
+    inter_head_orthogonal_reg = trial.suggest_float('inter_head_orthogonal_reg', 1e-6, 1e-2, log=True)
 
     train_loader = DataLoader(train_dataset, batch_size=LOCKED_BATCH_SIZE, shuffle=True, drop_last=True, pin_memory=(device.type == 'cuda'))
     val_loader   = DataLoader(val_dataset, batch_size=LOCKED_BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
@@ -241,8 +256,8 @@ def objective(trial):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=LOCKED_LR, weight_decay=LOCKED_WEIGHT_DECAY)
 
-    epochs = 30
-    patience = 10
+    epochs = 20
+    patience = 5
     patience_counter = 0
     best_val_loss = float('inf')
 
@@ -253,7 +268,12 @@ def objective(trial):
             optimizer.zero_grad(set_to_none=True)
             out = model(b_X)
             mse_loss = criterion(out, b_y)
-            ortho_loss = compute_orthogonal_penalty(model, attn_orthogonal_reg)
+            ortho_loss = compute_orthogonal_penalty(
+                model,
+                strength=LOCKED_INTRA_ORTHO,
+                inter_head_strength=inter_head_orthogonal_reg,
+                num_heads=LOCKED_NUM_HEADS
+            )
             loss = mse_loss + ortho_loss
             loss.backward()
             optimizer.step()
@@ -283,22 +303,24 @@ def objective(trial):
 
 if __name__ == '__main__':
     print("=" * 65)
-    print("🚀 Custom Encoder-Decoder Transformer 1D Optuna HPO")
+    print("🚀 Custom Seq2Seq Transformer Fast Optuna HPO (30 Trials)")
     print("=" * 65)
-    print("Optimizing Attention Orthogonal Regularization Strength (50 trials)...\n")
+    print("Target Dataset: ACN JPL (with Weather)")
+    print(f"Locked Intra-Matrix Reg : {LOCKED_INTRA_ORTHO}")
+    print("Optimizing Inter-Head Orthogonal Regularization Strength (30 trials)...\n")
     optuna.logging.set_verbosity(optuna.logging.INFO)
 
     study = optuna.create_study(
         sampler=optuna.samplers.TPESampler(seed=42),
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=10),
+        pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=5),
         direction="minimize",
-        study_name="00_hpo_tfm_custom_pytorch_1d"
+        study_name="00_hpo_tfm_custom_pytorch_inter_head_jpl"
     )
 
-    study.optimize(objective, n_trials=50)
+    study.optimize(objective, n_trials=30)
 
     print("\n" + "=" * 65)
-    print("🏆 BEST HYPERPARAMETERS FOUND (1D SEARCH):")
+    print("🏆 BEST HYPERPARAMETERS FOUND (INTER-HEAD REGULARIZATION):")
     print("=" * 65)
     for key, val in study.best_params.items():
         print(f"  - {key:<25}: {val}")
@@ -306,7 +328,7 @@ if __name__ == '__main__':
     print("=" * 65)
 
     # Save best parameters to JSON
-    output_json = "00_hpo_tfm_custom_pytorch_best_params.json"
+    output_json = "00_hpo_tfm_custom_pytorch_best_params_jpl.json"
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     completed_trials.sort(key=lambda t: t.value)
     top_10 = [
@@ -321,7 +343,8 @@ if __name__ == '__main__':
 
     best_data = {
         "model_name": "00_hpo_tfm_custom_pytorch",
-        "search_mode": "1D_ORTHOGONAL_REG_ABLATION",
+        "dataset": "acn_jpl",
+        "search_mode": "1D_INTER_HEAD_ORTHOGONAL_REG_ABLATION",
         "architecture_paradigm": "encoder_decoder_seq2seq",
         "base_model": "03_hpo_encdec_pytorch",
         "locked_params": {
@@ -332,10 +355,14 @@ if __name__ == '__main__':
             "dropout_rate": LOCKED_DROPOUT,
             "learning_rate": LOCKED_LR,
             "weight_decay": LOCKED_WEIGHT_DECAY,
-            "batch_size": LOCKED_BATCH_SIZE
+            "batch_size": LOCKED_BATCH_SIZE,
+            "attn_orthogonal_reg": LOCKED_INTRA_ORTHO
         },
         "best_val_loss": float(study.best_value),
-        "best_params": study.best_params,
+        "best_params": {
+            "attn_orthogonal_reg": LOCKED_INTRA_ORTHO,
+            **study.best_params
+        },
         "top_10_trials": top_10
     }
     with open(output_json, "w", encoding="utf-8") as f:

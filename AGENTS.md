@@ -5,6 +5,46 @@ This repository is the dedicated Multi-Seed Production Benchmark and Publication
 
 ---
 
+## ⚡ Session Quick Start (อ่านก่อน — ทำให้ครบในครั้งเดียว)
+
+### สถานะปัจจุบัน (อัปเดตทุกครั้งที่เริ่ม session)
+| มิติ | สถานะ |
+|---|---|
+| **Benchmark results** | acn_caltech ✅ \| acn_jpn ✅ \| no_weather variants ✅ (32/32 models) |
+| **Paper alignment audit** | 25/32 DONE — **ยังขาด: 25, 26, 27, 28, 29, 30, 31** |
+| **audit_state.json** | ครอบคลุมเฉพาะ model 00 — ต้องรัน auditor ครบ 32 |
+
+### งานถัดไปตามลำดับ
+1. ถ้ายังไม่ audit models 25–31 → รัน `python .agents/skills/paper-alignment-auditor/scripts/paper_audit_engine.py`
+2. ถ้า results ครบและ audit ผ่าน → `python tools/aggregate_benchmark.py`
+3. ดู `benchmark_status.md` สำหรับ dashboard live
+
+### Hard Constraints (ห้ามลืม — ใช้ทุกครั้งที่รัน HPC)
+| Rule | รายละเอียด |
+|---|---|
+| ❌ `torch.compile` | Crash บน Erawan (ไม่มี Python.h headers) |
+| ❌ `LightGBM device='cuda'` | ใช้ `device='cpu'`, `n_jobs=-1`, `max_bin=128` |
+| ✅ XGBoost | `tree_method='hist'`, `device='cuda'` — ใช้ได้ |
+| ✅ SLURM partition | `--partition=gpu-h100` เท่านั้นสำหรับ compute4 |
+| ✅ TF32 flags | ต้องเปิด `allow_tf32=True` + `cudnn.benchmark=True` |
+
+### CLI ที่ใช้บ่อย
+```bash
+# Aggregate all results → LaTeX + CSV + plots
+python tools/aggregate_benchmark.py
+
+# Paper audit engine (models 25-31)
+python .agents/skills/paper-alignment-auditor/scripts/paper_audit_engine.py
+
+# Search paper on arXiv
+python .agents/skills/literature-search-arxiv/scripts/search_arxiv.py --query "TITLE"
+
+# Search author metrics on OpenAlex
+python .agents/skills/literature-search-openalex/scripts/openalex_cli.py resolve works "PAPER TITLE"
+```
+
+---
+
 ## 1. The 3-Pillar Research Ecosystem
 
 This workspace operates as part of a tightly coupled **3-Pillar Scientific Ecosystem**:
@@ -42,14 +82,17 @@ This workspace operates as part of a tightly coupled **3-Pillar Scientific Ecosy
 +---------------------------------------+---------------------------------------+
 ```
 
-### 1.1 External Academic Knowledge Base (Obsidian Thesis Vault)
-**Path**: `C:\Users\chaya\Documents\Obsidian\Thesis`  
+### 1.1 External Academic Knowledge Base (Obsidian Thesis Vault & MLE Reference)
+**Path (Thesis Vault)**: `C:\Users\chaya\Documents\Obsidian\Thesis`  
+**Path (MLE Foundations)**: `C:\Users\chaya\Documents\Obsidian\Study_Plan\00_MLE_Foundations_Reference.md`  
+
 Whenever agents need theoretical context, literature review details, mathematical proofs, or citation keys, consult the following canonical files:
 - `paper_digest.md`: Deep literature digests for all time-series architectures, empirical claims, and benchmarks.
 - `research_gaps.md` & `progress_summary_and_research_gaps.md`: Identified research gaps and open scientific questions in EV aggregate charging load forecasting.
 - `proposed_architectures.md` & `transformer_research_ideas.md`: Mathematical formulation of Model 00 (Proposed Custom Transformer with Attention Orthogonal Regularization: $\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{forecast}} + \lambda_{\text{ortho}} \mathcal{L}_{\text{ortho}}$).
 - `dataset_extraction_report.md`: Exploratory data analysis, feature descriptions, station dynamics, and lookback/horizon characteristics on the Caltech ACN dataset.
 - `thesis_references.bib`: Master BibTeX citations with standardized citation keys.
+- **`00_MLE_Foundations_Reference.md`**: Master 189-topic mathematical & theoretical foundations reference (Linear Algebra, Calculus & Backpropagation, Stochastic Modeling, Optimization & Loss Landscapes, Attention Linear Algebra, Signal Processing & Time Series Decomposition). Essential for guiding architectural upgrades and mathematical rigor for Model 00.
 
 ### 1.2 Cross-Workspace Pipeline & Transitions
 - **Tuning (`../hyperparameter_tuning/`)**: Conducts 50-trial Optuna HPO and parsimony selection (`configs/selected_production_params.json`).
