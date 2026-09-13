@@ -9,6 +9,7 @@
 !tools/**
 !requirements.txt
 !.gitignore
+!README.md
 !AGENTS.md
 !CLAUDE.md
 !*.sbatch
