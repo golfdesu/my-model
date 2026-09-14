@@ -2,11 +2,11 @@
 # ==============================================================================
 # SLURM Job Script: FULL HPO Runner for Model 00 Inverted Custom Transformer
 # Architecture     : Inverted Variate-Centric Transformer + EEO Orthogonal Reg
-# Target Dataset   : Caltech Ready2 (acn_caltech_ready2.csv)
+# Target Dataset   : ACN-JPN / JPL Ready (acn_jpl_ready.csv)
 # Search Scope     : 50 Optuna Trials (Architecture, Optimizer & 3 Orthogonal Regs)
 # Target Hardware  : compute4 node (NVIDIA H100 80GB HBM3) on 'gpu-h100'
 # ==============================================================================
-#SBATCH --job-name=hpo_00_inverted_full
+#SBATCH --job-name=hpo_00_inverted_jpn
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.out
 #SBATCH --partition=gpu-h100

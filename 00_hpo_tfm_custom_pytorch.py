@@ -68,12 +68,14 @@ if __name__ == '__main__':
         print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # ==============================================================================
-# 1. Dataset Loading & Preprocessing (Paper Invariants: Caltech with Weather)
+# 1. Dataset Loading & Preprocessing (Paper Invariants: JPL/JPN with Weather)
 # ==============================================================================
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_jpl_ready.csv'
 if not os.path.exists(data_path):
     # Fallback to local sibling path if run from subdirectory
-    data_path = 'data_cleaned/acn_caltech_ready2.csv'
+    data_path = 'data_cleaned/acn_jpl_ready.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_jpn_ready.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -413,7 +415,7 @@ if __name__ == '__main__':
     print("=" * 65)
     print("🚀 Model 00 Inverted Custom Transformer FULL HPO (Direction 1)")
     print("=" * 65)
-    print("Dataset   : Caltech Ready2 (acn_caltech_ready2.csv)")
+    print("Dataset   : ACN-JPN / JPL Ready (acn_jpl_ready.csv)")
     print("Trials    : 50 Trials (Full Search Space on 100% Chronological Splits)")
     print("Pruner    : MedianPruner (Startup=10, Warmup=10)\n")
     optuna.logging.set_verbosity(optuna.logging.INFO)
@@ -422,7 +424,7 @@ if __name__ == '__main__':
         sampler=optuna.samplers.TPESampler(seed=42),
         pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=10),
         direction="minimize",
-        study_name="00_hpo_tfm_custom_pytorch_full"
+        study_name="00_hpo_tfm_custom_pytorch_jpn_full"
     )
 
     study.optimize(objective, n_trials=50)
@@ -452,7 +454,7 @@ if __name__ == '__main__':
     best_data = {
         "model_name": "00_hpo_tfm_custom_pytorch",
         "search_mode": "FULL_100_PERCENT",
-        "dataset": "acn_caltech_ready2",
+        "dataset": "acn_jpl_ready",
         "architecture_paradigm": "inverted_variate_centric_transformer",
         "base_model": "07_hpo_itfm_pytorch",
         "best_val_loss": float(study.best_value),
@@ -465,7 +467,7 @@ if __name__ == '__main__':
     print(f"\nSaved best parameters to {output_json}")
 
     # Also archive to best_params directory if exists
-    archive_dir = os.path.join("best_params", "acn_caltech")
+    archive_dir = os.path.join("best_params", "acn_jpl")
     os.makedirs(archive_dir, exist_ok=True)
     archive_json = os.path.join(archive_dir, output_json)
     with open(archive_json, "w", encoding="utf-8") as f:
