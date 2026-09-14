@@ -400,14 +400,14 @@ ATTN_ORTHOGONAL_REG       = 0.002356491752796512
 INTER_HEAD_ORTHOGONAL_REG = 8.65923378099159e-05
 EEO_ORTHOGONAL_REG        = 0.0
 
-OUTPUT_STEM = "00_tfm_custom_pytorch"
+OUTPUT_STEM = "00_tfm_custom_jpn_no_weather"
 output_json_filename = f"{OUTPUT_STEM}_results.json"
 best_model_filename  = f"{OUTPUT_STEM}_best.pt"
 predictions_filename = f"{OUTPUT_STEM}_predictions.npz"
 output_archive_dir   = "outputs/acn_jpn_no_weather/00_tfm_custom_pytorch"
 
 results_data = {
-    "model_name": "00_tfm_custom_pytorch",
+    "model_name": OUTPUT_STEM,
     "architecture_paradigm": "inverted_variate_centric_transformer",
     "base_model": "07_tfm_itfm_pytorch",
     "version": "v7_direction1",
@@ -643,8 +643,11 @@ with open(output_json_filename, "w", encoding="utf-8") as f:
 # Automatically archive to outputs directory
 os.makedirs(output_archive_dir, exist_ok=True)
 shutil.copyfile(output_json_filename, os.path.join(output_archive_dir, output_json_filename))
+shutil.copyfile(output_json_filename, os.path.join(output_archive_dir, "00_tfm_custom_pytorch_results.json"))
 if os.path.exists(best_model_filename):
     shutil.copyfile(best_model_filename, os.path.join(output_archive_dir, best_model_filename))
+    shutil.copyfile(best_model_filename, os.path.join(output_archive_dir, "00_tfm_custom_pytorch_best.pt"))
 if os.path.exists(predictions_filename):
     shutil.copyfile(predictions_filename, os.path.join(output_archive_dir, predictions_filename))
+    shutil.copyfile(predictions_filename, os.path.join(output_archive_dir, "00_tfm_custom_pytorch_predictions.npz"))
 print(f"\nAll artifacts successfully mirrored to: {output_archive_dir}/")

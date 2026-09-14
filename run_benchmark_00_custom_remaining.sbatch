@@ -97,9 +97,9 @@ T1_DIFF=$((T1_END - T1_START))
 if [ ${T1_EXIT} -eq 0 ]; then
     echo ">>> [1/3 SUCCESS] Model 00 Caltech No-Weather COMPLETED in $((T1_DIFF / 60))m (${T1_DIFF}s)"
     mkdir -p outputs/acn_caltech_no_weather/00_tfm_custom_pytorch
-    cp 00_tfm_custom_pytorch_results.json outputs/acn_caltech_no_weather/00_tfm_custom_pytorch/ 2>/dev/null || true
-    cp 00_tfm_custom_pytorch_best.pt outputs/acn_caltech_no_weather/00_tfm_custom_pytorch/ 2>/dev/null || true
-    cp 00_tfm_custom_pytorch_predictions.npz outputs/acn_caltech_no_weather/00_tfm_custom_pytorch/ 2>/dev/null || true
+    cp 00_tfm_custom_caltech_no_weather_results.json outputs/acn_caltech_no_weather/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json 2>/dev/null || true
+    cp 00_tfm_custom_caltech_no_weather_best.pt outputs/acn_caltech_no_weather/00_tfm_custom_pytorch/00_tfm_custom_pytorch_best.pt 2>/dev/null || true
+    cp 00_tfm_custom_caltech_no_weather_predictions.npz outputs/acn_caltech_no_weather/00_tfm_custom_pytorch/00_tfm_custom_pytorch_predictions.npz 2>/dev/null || true
 else
     echo ">>> [1/3 FAILED] Model 00 Caltech No-Weather FAILED with exit code ${T1_EXIT}"
 fi
@@ -120,9 +120,9 @@ T2_DIFF=$((T2_END - T2_START))
 if [ ${T2_EXIT} -eq 0 ]; then
     echo ">>> [2/3 SUCCESS] Model 00 JPN No-Weather COMPLETED in $((T2_DIFF / 60))m (${T2_DIFF}s)"
     mkdir -p outputs/acn_jpn_no_weather/00_tfm_custom_pytorch
-    cp 00_tfm_custom_pytorch_results.json outputs/acn_jpn_no_weather/00_tfm_custom_pytorch/ 2>/dev/null || true
-    cp 00_tfm_custom_pytorch_best.pt outputs/acn_jpn_no_weather/00_tfm_custom_pytorch/ 2>/dev/null || true
-    cp 00_tfm_custom_pytorch_predictions.npz outputs/acn_jpn_no_weather/00_tfm_custom_pytorch/ 2>/dev/null || true
+    cp 00_tfm_custom_jpn_no_weather_results.json outputs/acn_jpn_no_weather/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json 2>/dev/null || true
+    cp 00_tfm_custom_jpn_no_weather_best.pt outputs/acn_jpn_no_weather/00_tfm_custom_pytorch/00_tfm_custom_pytorch_best.pt 2>/dev/null || true
+    cp 00_tfm_custom_jpn_no_weather_predictions.npz outputs/acn_jpn_no_weather/00_tfm_custom_pytorch/00_tfm_custom_pytorch_predictions.npz 2>/dev/null || true
 else
     echo ">>> [2/3 FAILED] Model 00 JPN No-Weather FAILED with exit code ${T2_EXIT}"
 fi
@@ -143,9 +143,9 @@ T3_DIFF=$((T3_END - T3_START))
 if [ ${T3_EXIT} -eq 0 ]; then
     echo ">>> [3/3 SUCCESS] Model 00 JPN with Weather COMPLETED in $((T3_DIFF / 60))m (${T3_DIFF}s)"
     mkdir -p outputs/acn_jpn/00_tfm_custom_pytorch
-    cp 00_tfm_custom_pytorch_results.json outputs/acn_jpn/00_tfm_custom_pytorch/ 2>/dev/null || true
-    cp 00_tfm_custom_pytorch_best.pt outputs/acn_jpn/00_tfm_custom_pytorch/ 2>/dev/null || true
-    cp 00_tfm_custom_pytorch_predictions.npz outputs/acn_jpn/00_tfm_custom_pytorch/ 2>/dev/null || true
+    cp 00_tfm_custom_jpn_results.json outputs/acn_jpn/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json 2>/dev/null || true
+    cp 00_tfm_custom_jpn_best.pt outputs/acn_jpn/00_tfm_custom_pytorch/00_tfm_custom_pytorch_best.pt 2>/dev/null || true
+    cp 00_tfm_custom_jpn_predictions.npz outputs/acn_jpn/00_tfm_custom_pytorch/00_tfm_custom_pytorch_predictions.npz 2>/dev/null || true
 else
     echo ">>> [3/3 FAILED] Model 00 JPN with Weather FAILED with exit code ${T3_EXIT}"
 fi
