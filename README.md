@@ -38,14 +38,20 @@ sbatch run_benchmark_00_custom.sbatch
 
 ### 4. Aggregate Results into Publication Tables & Plots
 ```bash
-python tools/aggregate_benchmark.py
+# Aggregate across all 4 benchmark datasets simultaneously
+python tools/aggregate_benchmark.py --dataset all
+
+# Or aggregate a specific dataset
+python tools/aggregate_benchmark.py --dataset acn_caltech
 ```
 Generates:
-- `outputs/benchmark_summary.csv` — Comprehensive metric summary table
-- `docs/benchmark_summary.md` — Markdown summary table with bold/underline rankings
-- `docs/benchmark_summary.tex` — Publication-ready Booktabs LaTeX table
-- `plots/benchmark_mae_ranking.png` — Model ranking bar chart with error bars
-- `plots/benchmark_horizon_mae.png` — Multi-step error propagation across $H = 1 \dots 48$
+- `outputs/<dataset>/benchmark_summary.csv` — Comprehensive metric summary table
+- `outputs/<dataset>/benchmark_seeds.csv` — Full 10-seed raw metric evaluation logs
+- `docs/benchmark_multi_dataset_summary.md` — Unified cross-dataset ranking matrix
+- `docs/benchmark_summary.md` & `docs/benchmark_summary.tex` — Publication Markdown & LaTeX Booktabs tables
+- `plots/<dataset>/benchmark_mae_ranking.png` — Model ranking bar chart with error bars
+- `plots/<dataset>/benchmark_horizon_mae.png` — Multi-step error propagation across $H = 1 \dots 48$
+- `plots/<dataset>/benchmark_pareto_efficiency.png` — Pareto frontier (MAE vs Runtime/VRAM)
 
 ---
 
@@ -64,7 +70,7 @@ All models are strictly evaluated under non-negotiable scientific ground truths 
 
 | ID | Model Script | Key Mechanism / Paradigm | Provenance / Canonical Reference |
 |:---|:---|:---|:---|
-| **00** | `00_tfm_custom_pytorch.py` | **Proposed Custom Transformer** (EEO-Attention + Fused FastMHA) | **Thesis Contribution** |
+| **00** | `00_tfm_custom_pytorch.py` | **Proposed Inverted Custom Transformer** (Inverted Tokens + EEO Subspace Disentanglement + Vectorized Orthogonal Regularization) | **Thesis Contribution** |
 | **01** | `01_tfm_enc_pytorch.py` | Vanilla Transformer Encoder | Vaswani et al. (NeurIPS 2017) |
 | **02** | `02_tfm_dec_pytorch.py` | Vanilla Transformer Decoder (Causal Autoregressive) | Vaswani et al. (NeurIPS 2017) |
 | **03** | `03_tfm_encdec_pytorch.py` | Full Seq2Seq Transformer (Cross-Attention) | Vaswani et al. (NeurIPS 2017) |
@@ -96,6 +102,34 @@ All models are strictly evaluated under non-negotiable scientific ground truths 
 | **29** | `29_segrnn_baseline_pytorch.py` | SegRNN (Segment-wise Recurrent Neural Network) | Lin et al. (ICLR 2024) |
 | **30** | `30_nstransformer_baseline_pytorch.py` | Non-stationary Transformer (Series De-stationarization) | Liu et al. (NeurIPS 2022) |
 | **31** | `31_scinet_baseline_pytorch.py` | SCINet (Sample-Convolution and Interaction Network) | Liu et al. (NeurIPS 2022) |
+
+---
+
+## 🏆 Cross-Dataset Benchmark Summary (All 4 Datasets, 32 Models, 10 Seeds)
+
+Evaluated across four benchmark datasets under strict 10-seed deterministic evaluation:
+- **Caltech (With Weather):** 28 features (EV load, lags, rolling stats, calendar, weather physics)
+- **Caltech (No Weather):** 22 features (weather features removed for ablation)
+- **JPN (With Weather):** 28 features (JPL high-volume charging network with weather)
+- **JPN (No Weather):** 22 features (JPL network without weather)
+
+### Top-10 Overall Ranking Matrix (Sorted by Average Rank):
+
+| Overall Rank | Model Architecture | Family | Caltech (w/ Weather) MAE ↓ | Caltech (No Weather) MAE ↓ | JPN (w/ Weather) MAE ↓ | JPN (No Weather) MAE ↓ | Avg Rank |
+|:---:|---|---|:---:|:---:|:---:|:---:|:---:|
+| **1** | `00_tfm_custom_pytorch` | **Custom Proposed** | **4.9421 ± 0.1053 (#1)** 🏆 | 5.1806 ± 0.0671 (#6) | **9.6589 ± 0.3597 (#1)** 🏆 | **9.3842 ± 0.3378 (#1)** 🏆 | **2.25** 🏆 |
+| 2 | `07_tfm_itfm_pytorch` | Transformer (iTransformer) | 5.0937 ± 0.1477 (#4) | 5.0719 ± 0.1074 (#4) | 10.1964 ± 0.3596 (#3) | 10.0728 ± 0.3305 (#4) | 3.75 |
+| 3 | `28_crossformer_baseline_pytorch` | Transformer (Crossformer) | 5.0004 ± 0.1176 (#2) | 4.9957 ± 0.1424 (#2) | 10.6725 ± 0.5144 (#7) | 10.1673 ± 0.3529 (#6) | 4.25 |
+| 4 | `03_tfm_encdec_pytorch` | Transformer (Seq2Seq) | 5.0528 ± 0.1323 (#3) | 5.0171 ± 0.1212 (#3) | 10.9314 ± 0.3553 (#8) | 10.5545 ± 0.4758 (#8) | 5.50 |
+| 5 | `18_lightgbm_baseline` | Tree-based GBDT | 5.3865 ± 0.0059 (#9) | 5.4525 ± 0.0078 (#10) | 10.1139 ± 0.0083 (#2) | 10.0016 ± 0.0081 (#3) | 6.00 |
+| 6 | `04_tfm_ifm_pytorch` | Transformer (Informer) | 5.1754 ± 0.1009 (#7) | 5.3603 ± 0.2941 (#8) | 11.0508 ± 0.2721 (#9) | 11.0470 ± 0.4603 (#10) | 8.50 |
+| 7 | `02_tfm_dec_pytorch` | Transformer (Decoder) | 5.5937 ± 0.1361 (#14) | 5.6133 ± 0.1148 (#15) | 10.2429 ± 0.2400 (#5) | 9.9867 ± 0.2415 (#2) | 9.00 |
+| 8 | `23_tcn_baseline_pytorch` | CNN / 2D Temporal (TCN) | 5.1188 ± 0.1077 (#5) | 5.1500 ± 0.1209 (#5) | 11.1925 ± 0.6865 (#11) | 11.5944 ± 0.9022 (#16) | 9.25 |
+| 9 | `17_xgboost_baseline` | Tree-based GBDT | 5.4623 ± 0.0099 (#10) | 5.5978 ± 0.0102 (#14) | 10.5648 ± 0.0070 (#6) | 10.3269 ± 0.0063 (#7) | 9.25 |
+| 10 | `01_tfm_enc_pytorch` | Transformer (Encoder) | 5.6313 ± 0.0893 (#15) | 5.6391 ± 0.1475 (#16) | 10.2067 ± 0.3232 (#4) | 10.1465 ± 0.2708 (#5) | 10.00 |
+
+> Full evaluation report across all 32 architectures: see [`docs/benchmark_multi_dataset_summary.md`](docs/benchmark_multi_dataset_summary.md).  
+> Mathematical formulation, prior-art literature review, and academic novelty analysis: see [`docs/model_00_novelty_and_prior_art.md`](docs/model_00_novelty_and_prior_art.md).
 
 ---
 
