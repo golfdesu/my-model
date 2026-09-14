@@ -420,24 +420,24 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 128   # Caltech variate-centric batch size (matching iTransformer baseline 07)
+BATCH_SIZE = 64    # Selected by Full HPO (Trial 14)
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Inverted Variate-Centric Transformer Backbone for Caltech)
-D_MODEL             = 64
-NUM_HEADS           = 4
-D_FF                = 256
-NUM_LAYERS          = 2
+# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on Caltech)
+D_MODEL             = 128
+NUM_HEADS           = 8
+D_FF                = 512
+NUM_LAYERS          = 3
 DROPOUT_RATE        = 0.1
-LEARNING_RATE       = 0.001
-WEIGHT_DECAY        = 1e-5
+LEARNING_RATE       = 0.00038608860950560737
+WEIGHT_DECAY        = 1.000134592489716e-05
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
-ATTN_ORTHOGONAL_REG = 1e-5
-INTER_HEAD_ORTHOGONAL_REG = 1e-5
-EEO_ORTHOGONAL_REG = 1e-5
+ATTN_ORTHOGONAL_REG       = 6.842882094148905e-05
+INTER_HEAD_ORTHOGONAL_REG = 0.0002480116648234053
+EEO_ORTHOGONAL_REG        = 1.1175530342864682e-05
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
@@ -558,6 +558,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
             loss = mse_loss + ortho_loss
 
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             train_loss += mse_loss.item() * BATCH_SIZE
 
