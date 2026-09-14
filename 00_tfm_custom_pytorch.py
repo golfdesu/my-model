@@ -2,13 +2,17 @@
 # coding: utf-8
 
 # # 00_tfm_custom_pytorch.py
-# Custom Encoder-Decoder Transformer in PyTorch for EV Charging Load Forecasting (L=96, H=48)
-# Base Architecture: 03_tfm_encdec_pytorch.py (Full Seq2Seq Transformer - Vaswani et al., NIPS 2017)
-#
-# Customization State:
-# - Architecture Paradigm: Full Encoder-Decoder Seq2Seq with Causal Masked Self-Attention and Cross-Attention
-# - Active Custom Feature: Attention Weight Orthogonal Regularization across Encoder, Decoder, and Cross-Attention
-# - See docs/00_custom_features_log.md for full customization backlog and activation roadmap.
+# Model 00 (Proposed): Inverted Variate-Centric Custom Transformer in PyTorch (L=96, H=48)
+# Key Architectural Mechanisms:
+# - Inverted Variate Tokenization: Each variate time series is projected into a d_model token
+# - Endogenous-Exogenous Subspace Disentanglement: Dual input projection layers (endo_proj & exo_proj)
+# - Vectorized Batched Orthogonal Regularization:
+#     * Intra-Matrix Isometry: Gram matrix isometric penalty on Q, K, V, Out attention projections
+#     * Inter-Head Diversity: Normalized Gram matrix off-diagonal penalty across attention heads
+#     * EEO Cross-Subspace Orthogonality: Normalized cosine similarity penalty between endo & exo weights
+# - Pre-LN RMSNorm + Hardware-Accelerated FastSDPA (Native PyTorch Scaled Dot-Product Attention)
+# - Dual-Context Readout Projection Head: Target variate token concatenated with global context mean
+# - Master Production Benchmark Script (Caltech ACN with Weather, 10-Seed Deterministic Protocol)
 
 import sys
 import os

@@ -2,11 +2,9 @@
 /*
 !/**/
 
-# 2. Whitelist numbered experiment scripts, tools, and environment dependencies
+# 2. Whitelist numbered experiment scripts and environment dependencies
 ![0-9]*
 !**/[0-9]*
-!tools/
-!tools/**
 !requirements.txt
 !.gitignore
 !README.md
@@ -38,6 +36,7 @@ configs/
 docs/
 logs/
 plots/
+tools/
 secret vault.txt
 *vault*.txt
 
