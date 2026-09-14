@@ -1,21 +1,21 @@
 #!/bin/bash
 # ==============================================================================
-# SLURM Job Script: 1D HPO Runner for Model 00 (Attention Orthogonal Strength)
-# Base Architecture: Model 03 (Seq2Seq Encoder-Decoder Transformer)
-# Fixed Parameters : JPL Parsimonious Production Hyperparameters
-# Target Parameter : attn_orthogonal_reg (50 Optuna trials)
+# SLURM Job Script: FULL HPO Runner for Model 00 Inverted Custom Transformer
+# Architecture     : Inverted Variate-Centric Transformer + EEO Orthogonal Reg
+# Target Dataset   : Caltech Ready2 (acn_caltech_ready2.csv)
+# Search Scope     : 50 Optuna Trials (Architecture, Optimizer & 3 Orthogonal Regs)
 # Target Hardware  : compute4 node (NVIDIA H100 80GB HBM3) on 'gpu-h100'
 # ==============================================================================
-#SBATCH --job-name=hpo_00_custom_ortho
+#SBATCH --job-name=hpo_00_inverted_full
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.out
 #SBATCH --partition=gpu-h100
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
-#SBATCH --time=04:00:00
+#SBATCH --time=06:00:00
 
 mkdir -p logs
 
@@ -26,7 +26,7 @@ echo "Partition           : $SLURM_JOB_PARTITION"
 echo "Job Name            : $SLURM_JOB_NAME"
 echo "Start Time          : $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Working Directory   : $(pwd)"
-echo "Target Model        : Model 00 Custom Transformer (1D Orthogonal Strength Search)"
+echo "Target Model        : Model 00 Inverted Custom Transformer (FULL Optuna HPO)"
 echo "=============================================================================="
 
 # 1. Environment & CUDA Setup

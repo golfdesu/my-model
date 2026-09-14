@@ -63,9 +63,9 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # ==============================================================================
-# 1. Dataset Loading & Preprocessing (JPL with Weather)
+# 1. Dataset Loading & Preprocessing (Caltech with Weather)
 # ==============================================================================
-data_path = '../data_cleaned/acn_jpl_ready.csv'
+data_path = '../data_cleaned/acn_caltech_ready2.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -83,16 +83,10 @@ for col in df.columns:
     if col != 'kWhDelivered':
         cols.append(col)
 
-# EEO Feature Partition: Endogenous (Load + Calendar) vs Exogenous (Weather Physics)
-exo_col_names = ['temp', 'rhum', 'wspd', 'pres', 'apparent_temp', 'tempMean_48']
-exo_indices = [i for i, c in enumerate(cols) if c in exo_col_names]
-endo_indices = [i for i, c in enumerate(cols) if c not in exo_col_names]
-
 X = df[cols]
 y = df['kWhDelivered']
 
 print(f"Dataset Loaded successfully from {data_path}! Total Rows: {len(df)}, Features Count: {len(cols)}")
-print(f"  -> EEO Subspace Partition: {len(endo_indices)} Endogenous Features, {len(exo_indices)} Exogenous Weather Features")
 
 # Train/Val/Test Split (60% / 20% / 20%)
 train_len = int(len(df) * 0.6)
@@ -117,6 +111,19 @@ scaler_y = MinMaxScaler()
 y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).flatten()
 y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1, 1)).flatten()
 y_test_scaled  = scaler_y.transform(y_test.values.reshape(-1, 1)).flatten()
+
+# Inverted Transformer Tokenization: Target variate appended as an input variate token
+TARGET_CH_IDX = X_train_scaled.shape[1]
+X_train_scaled = np.concatenate([X_train_scaled, y_train_scaled.reshape(-1, 1)], axis=1)
+X_val_scaled   = np.concatenate([X_val_scaled,   y_val_scaled.reshape(-1, 1)], axis=1)
+X_test_scaled  = np.concatenate([X_test_scaled,  y_test_scaled.reshape(-1, 1)], axis=1)
+print(f"Target variate appended at index {TARGET_CH_IDX} (Total Variate Tokens: {X_train_scaled.shape[1]})")
+
+# EEO Feature Partition: Endogenous (Load + Calendar + Target) vs Exogenous (Weather Physics)
+exo_col_names = ['temp', 'rhum', 'wspd', 'pres', 'apparent_temp', 'tempMean_48']
+exo_indices = [i for i, c in enumerate(cols) if c in exo_col_names]
+endo_indices = [i for i, c in enumerate(cols) if c not in exo_col_names] + [TARGET_CH_IDX]
+print(f"  -> EEO Subspace Partition: {len(endo_indices)} Endogenous Variates, {len(exo_indices)} Exogenous Weather Variates")
 
 # Compute Peak Load Threshold (Top 20% of TRAIN in actual kW)
 peak_threshold_kw = float(np.percentile(df['kWhDelivered'].iloc[:train_len], 80))
@@ -205,31 +212,40 @@ class FastMHA(nn.Module):
         return self.out_proj(attn_out)
 
 
-class EncoderDecoderTransformer(nn.Module):
+class InvertedCustomTransformer(nn.Module):
     """
-    Custom Pre-LN Encoder-Decoder Seq2Seq Transformer with RMSNorm and
-    Disentangled Exogenous-Endogenous Orthogonal Attention (Model 00 v6 Fused Fast Engine).
-    Features:
-    - Dual-Stream Feature Partitioning: Separates Endogenous features (load lags + calendar)
-      from Exogenous features (ambient weather physics).
-    - Dual-Subspace Projection: Dedicated linear projections (proj_endo, proj_exo) concatenated
-      into a partitioned latent representation [d_model // 2, d_model // 2].
-    - Pre-LN Residual Highway: Normalization precedes multi-head attention and FFN,
-      guaranteeing an unimpeded gradient flow without vanishing gradients.
-    - RMSNorm: Eliminates mean shift computation to enforce scale invariance and stabilize attention condition numbers.
-    - FastMHA w/ Independent QKV: Eliminates Adam optimizer gradient interference across orthogonal subspaces.
-      (Note: Fused in-projection QKV was tested in ablation and rejected: packing Q, K, V into one tensor
-      caused Adam momentum coupling across slices, degrading MAE from 11.07 to 11.26 kW without H100 speedup).
-    - Fused SDPA Attention: Executes directly in SRAM via FlashAttention-2 / cuDNN hardware tiling (Topic 151).
-    - Vectorized Batched Orthogonal Regularization: Closed-form batched matrix multiplication (torch.bmm)
-      across all attention projections simultaneously (Topic 15 & 21).
-    - Output Head: Token-wise Linear projection (d_model -> 1) squeezed to [batch, horizon].
+    Model 00 Inverted Variate-Centric Transformer with EEO Disentangled Embedding
+    and Multi-Head Cross-Variate Orthogonal Regularization (v7 Direction 1 Engine).
+
+    Key Architectural Mechanisms:
+    1. Inverted Variate Tokenization:
+       - Transposes input [batch, lookback, num_variates] to [batch, num_variates, lookback].
+       - Each variate time series is treated as an independent token (Vaswani NLP token analogue).
+       - Eliminates the zero-placeholder decoder query failure mode of standard Seq2Seq.
+    2. Disentangled EEO Variate Projection:
+       - Endogenous tokens (Load history, lag features, calendar features, target load) -> endo_proj: Linear(lookback, d_model)
+       - Exogenous tokens (Ambient weather physics: temp, rhum, wspd, pres, apparent_temp, tempMean) -> exo_proj: Linear(lookback, d_model)
+       - Enforces distinct inductive representations between operational charging dynamics and external meteorological physics.
+    3. Pre-LN RMSNorm + FastMHA Cross-Variate Encoder:
+       - Computes all-to-all cross-variate attention across feature tokens (29 x 29 matrix, lightweight & stable).
+       - Uses RMSNorm for scale invariance and stable condition numbers without mean-shift overhead.
+       - Independent Q, K, V projections to avoid Adam optimizer momentum coupling across orthogonal subspaces.
+    4. Vectorized Cross-Variate Orthogonal Regularization:
+       - Intra-Matrix Isometry: W^T W approx I on Q, K, V, Out projections.
+       - Inter-Head Diversity: Forces heads to attend to distinct variate relationships (Autocorrelation, Calendar, Weather).
+       - EEO Cross-Subspace Orthogonality: Penalizes cross-correlation between endo_proj and exo_proj weight spaces.
+    5. Dual-Context Target Readout Head:
+       - Combines target variate token representation with global average pooled context across all variates.
+       - Direct multi-step projection to forecast horizon H = 48 steps simultaneously.
     """
-    def __init__(self, lookback, num_features, horizon, d_model=64, num_heads=4, d_ff=128, num_layers=2,
-                 dropout_rate=0.05, endo_indices=None, exo_indices=None):
+    def __init__(self, lookback, num_features=None, num_variates=None, horizon=48, target_ch_idx=None,
+                 d_model=64, num_heads=4, d_ff=256, num_layers=2, dropout_rate=0.1,
+                 endo_indices=None, exo_indices=None):
         super().__init__()
         self.lookback = lookback
+        self.num_variates = num_variates if num_variates is not None else num_features
         self.horizon = horizon
+        self.target_ch_idx = target_ch_idx if target_ch_idx is not None else (self.num_variates - 1)
         self.d_model = d_model
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
@@ -237,21 +253,20 @@ class EncoderDecoderTransformer(nn.Module):
         self.endo_indices = endo_indices
         self.exo_indices = exo_indices
 
-        # Dual-Stream Feature Projection (Endogenous vs Exogenous)
+        assert self.head_dim * num_heads == d_model, "d_model must be divisible by num_heads"
+
+        # Disentangled EEO Variate Projections
         if endo_indices is not None and exo_indices is not None:
             self.use_disentangled_proj = True
-            d_endo = d_model // 2
-            d_exo = d_model - d_endo
-            self.endo_proj = nn.Linear(len(endo_indices), d_endo)
-            self.exo_proj = nn.Linear(len(exo_indices), d_exo)
+            self.endo_proj = nn.Linear(lookback, d_model)
+            self.exo_proj  = nn.Linear(lookback, d_model)
         else:
             self.use_disentangled_proj = False
-            self.enc_proj = nn.Linear(num_features, d_model)
+            self.variate_proj = nn.Linear(lookback, d_model)
 
-        self.pos_emb_enc = PositionalEmbedding(lookback, d_model)
-        self.drop_enc = nn.Dropout(dropout_rate)
+        self.drop_in = nn.Dropout(dropout_rate)
 
-        # FastMHA Layers (Encoder)
+        # Cross-Variate Transformer Layers (Pre-LN with RMSNorm)
         self.enc_attn = nn.ModuleList([
             FastMHA(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
             for _ in range(num_layers)
@@ -260,150 +275,109 @@ class EncoderDecoderTransformer(nn.Module):
         self.enc_ffn = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(d_model, d_ff),
-                nn.ReLU(),
+                nn.GELU(),
                 nn.Dropout(dropout_rate),
                 nn.Linear(d_ff, d_model)
             ) for _ in range(num_layers)
         ])
         self.enc_norm2 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
         self.enc_final_norm = RMSNorm(d_model)
+        self.drop_enc = nn.Dropout(dropout_rate)
 
-        # Decoder
-        self.pos_emb_dec = PositionalEmbedding(horizon, d_model)
-        self.drop_dec = nn.Dropout(dropout_rate)
-
-        # FastMHA Self-Attention Layers (Decoder)
-        self.dec_attn = nn.ModuleList([
-            FastMHA(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
-            for _ in range(num_layers)
-        ])
-        self.dec_norm1 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
-
-        # FastMHA Cross-Attention Layers (Decoder -> Encoder Context)
-        self.cross_attn = nn.ModuleList([
-            FastMHA(embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate)
-            for _ in range(num_layers)
-        ])
-        self.dec_norm2 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
-
-        self.ffn_dec = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(d_model, d_ff),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate),
-                nn.Linear(d_ff, d_model)
-            ) for _ in range(num_layers)
-        ])
-        self.dec_norm3 = nn.ModuleList([RMSNorm(d_model) for _ in range(num_layers)])
-        self.dec_final_norm = RMSNorm(d_model)
-
-        # Token-wise linear projection head
-        self.out_head = nn.Linear(d_model, 1)
+        # Dual-Context Readout Head: Target Token + Global Cross-Variate Mean Context
+        self.out_head = nn.Sequential(
+            nn.Linear(2 * d_model, d_model),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(d_model, horizon)
+        )
 
         # Pre-cache attention layer references for zero-overhead vectorized penalty computation
-        self.all_attn_layers = list(self.enc_attn) + list(self.dec_attn) + list(self.cross_attn)
+        self.all_attn_layers = list(self.enc_attn)
 
     def forward(self, x):
-        # x: [batch, lookback, num_features]
-        batch_size = x.size(0)
+        # x: [batch, lookback, num_variates]
+        B = x.size(0)
+        x_inv = x.transpose(1, 2)  # [batch, num_variates, lookback]
 
-        # Encoder (Pre-LN with RMSNorm and Disentangled EEO Projection)
+        # Disentangled EEO Variate Projection
         if self.use_disentangled_proj:
-            x_endo = x[:, :, self.endo_indices]
-            x_exo = x[:, :, self.exo_indices]
-            enc_feat = torch.cat([self.endo_proj(x_endo), self.exo_proj(x_exo)], dim=-1)
+            tokens = torch.empty(B, self.num_variates, self.d_model, device=x.device)
+            tokens[:, self.endo_indices, :] = self.endo_proj(x_inv[:, self.endo_indices, :])
+            tokens[:, self.exo_indices, :]  = self.exo_proj(x_inv[:, self.exo_indices, :])
         else:
-            enc_feat = self.enc_proj(x)
+            tokens = self.variate_proj(x_inv)
 
-        enc = self.drop_enc(self.pos_emb_enc(enc_feat))
+        tokens = self.drop_in(tokens)
+
+        # Cross-Variate Transformer Attention Layers
         for i in range(self.num_layers):
-            normed = self.enc_norm1[i](enc)
+            normed = self.enc_norm1[i](tokens)
             attn_out = self.enc_attn[i](normed, normed, normed, is_causal=False)
-            enc = enc + self.drop_enc(attn_out)
+            tokens = tokens + self.drop_enc(attn_out)
 
-            normed = self.enc_norm2[i](enc)
+            normed = self.enc_norm2[i](tokens)
             ffn_out = self.enc_ffn[i](normed)
-            enc = enc + self.drop_enc(ffn_out)
+            tokens = tokens + self.drop_enc(ffn_out)
 
-        enc_out = self.enc_final_norm(enc)
+        tokens = self.enc_final_norm(tokens)
 
-        # Decoder initial context (zero placeholder query tokens for forecast horizon)
-        dec_in = torch.zeros(batch_size, self.horizon, self.d_model, device=x.device)
-        dec = self.drop_dec(self.pos_emb_dec(dec_in))
-
-        for i in range(self.num_layers):
-            normed = self.dec_norm1[i](dec)
-            # Fused SDPA causal masking (is_causal=True) executes directly in SRAM without materializing mask tensor
-            dec_attn_out = self.dec_attn[i](normed, normed, normed, is_causal=True)
-            dec = dec + self.drop_dec(dec_attn_out)
-
-            normed = self.dec_norm2[i](dec)
-            cross_attn_out = self.cross_attn[i](query=normed, key=enc_out, value=enc_out, is_causal=False)
-            dec = dec + self.drop_dec(cross_attn_out)
-
-            normed = self.dec_norm3[i](dec)
-            ffn_out = self.ffn_dec[i](normed)
-            dec = dec + self.drop_dec(ffn_out)
-
-        dec = self.dec_final_norm(dec)
-        out = self.out_head(dec).squeeze(-1)  # [batch, horizon]
+        # Dual-Context Target Readout Head
+        target_token = tokens[:, self.target_ch_idx, :]          # [batch, d_model]
+        global_mean  = torch.mean(tokens, dim=1)                  # [batch, d_model]
+        context = torch.cat([target_token, global_mean], dim=-1) # [batch, 2 * d_model]
+        out = self.out_head(context)                              # [batch, horizon]
         return out
 
     def compute_vectorized_orthogonal_penalty(self, strength=1e-5, inter_head_strength=1e-5, eeo_strength=1e-5):
         """
-        [ACTIVE CUSTOM FEATURE: Vectorized Batched Orthogonal Regularization (Model 00 v5 Engine)]
-        Replaces Python named_parameters loop and micro-kernel launches with 3 batched GEMM operations (torch.bmm):
-        1. Batched Intra-Matrix Isometry: all_weights.transpose(1, 2) @ all_weights -> 1 kernel
-        2. Batched Inter-Head Diversity: w_heads_flat @ w_heads_flat.transpose(1, 2) -> 1 kernel
-        3. Batched EEO Cross-Subspace Orthogonality: w_endo @ w_exo.transpose(1, 2) -> 1 kernel
+        Vectorized Batched Orthogonal Regularization across Attention Subspaces
+        and Disentangled EEO Feature Projection Subspaces.
         """
+        ref_device = self.endo_proj.weight.device if self.use_disentangled_proj else self.variate_proj.weight.device
         if strength <= 0.0 and inter_head_strength <= 0.0 and eeo_strength <= 0.0:
-            return torch.tensor(0.0, device=self.out_head.weight.device)
+            return torch.tensor(0.0, device=ref_device)
 
         q_weights = [layer.q_proj.weight for layer in self.all_attn_layers]
         k_weights = [layer.k_proj.weight for layer in self.all_attn_layers]
         v_weights = [layer.v_proj.weight for layer in self.all_attn_layers]
         out_weights = [layer.out_proj.weight for layer in self.all_attn_layers]
 
-        stacked_qk = torch.stack(q_weights + k_weights, dim=0) # [12, d_model, d_model]
-        stacked_v_out = torch.stack(v_weights + out_weights, dim=0) # [12, d_model, d_model]
-        all_weights = torch.cat([stacked_qk, stacked_v_out], dim=0) # [24, d_model, d_model]
+        stacked_qk = torch.stack(q_weights + k_weights, dim=0)        # [2 * num_layers, d_model, d_model]
+        stacked_v_out = torch.stack(v_weights + out_weights, dim=0)   # [2 * num_layers, d_model, d_model]
+        all_weights = torch.cat([stacked_qk, stacked_v_out], dim=0)   # [4 * num_layers, d_model, d_model]
 
         penalty = torch.tensor(0.0, device=all_weights.device)
 
-        # 1. Batched Intra-Matrix Isometry (across all 24 weight matrices)
+        # 1. Batched Intra-Matrix Isometry (across all Q, K, V, Out weight matrices)
         if strength > 0.0:
             wt_w = torch.bmm(all_weights.transpose(1, 2), all_weights)
             eye = torch.eye(self.d_model, device=all_weights.device).unsqueeze(0)
             penalty = penalty + strength * torch.sum((wt_w - eye) ** 2)
 
-        # 2. Batched Inter-Head Diversity (across all 12 Q and K matrices)
+        # 2. Batched Inter-Head Diversity (across Q and K matrices)
         num_qk = stacked_qk.size(0)
         if inter_head_strength > 0.0 and self.num_heads > 1:
             w_heads_flat = stacked_qk.view(num_qk, self.num_heads, -1)
             head_norms = torch.norm(w_heads_flat, dim=-1, keepdim=True) + 1e-8
-            # Use broadcast multiplication instead of torch.bmm to avoid triggering Triton JIT outer product on HPC
             norm_gram = torch.bmm(w_heads_flat, w_heads_flat.transpose(1, 2)) / (head_norms * head_norms.transpose(1, 2))
             off_diag = norm_gram - torch.eye(self.num_heads, device=all_weights.device).unsqueeze(0)
-            # Summed across all 12 matrices to preserve exact mathematical parity with v4
             inter_loss = torch.sum(off_diag ** 2) / (self.num_heads * (self.num_heads - 1))
             penalty = penalty + inter_head_strength * inter_loss
 
-        # 3. Batched EEO Cross-Subspace Orthogonality (across all 12 Q and K matrices)
-        if eeo_strength > 0.0 and self.num_heads >= 4:
-            mid = self.num_heads // 2
-            w_heads = stacked_qk.view(num_qk, self.num_heads, self.head_dim, self.d_model)
-            w_endo = w_heads[:, :mid].reshape(num_qk, mid * self.head_dim, self.d_model)
-            w_exo  = w_heads[:, mid:].reshape(num_qk, mid * self.head_dim, self.d_model)
-            w_endo_norm = torch.norm(w_endo, dim=-1, keepdim=True) + 1e-8
-            w_exo_norm  = torch.norm(w_exo, dim=-1, keepdim=True) + 1e-8
-            # Use broadcast multiplication instead of torch.bmm to avoid triggering Triton JIT outer product on HPC
-            cross_cos = torch.bmm(w_endo, w_exo.transpose(1, 2)) / (w_endo_norm * w_exo_norm.transpose(1, 2))
-            # Average within each matrix subspace and sum across all 12 matrices to preserve exact mathematical parity with v4
-            eeo_loss = torch.sum(torch.mean(cross_cos ** 2, dim=(1, 2)))
+        # 3. Batched EEO Cross-Subspace Orthogonality (Endogenous vs Exogenous Projection Weights)
+        if eeo_strength > 0.0 and self.use_disentangled_proj:
+            w_endo = F.normalize(self.endo_proj.weight, p=2, dim=-1)  # [d_model, lookback]
+            w_exo  = F.normalize(self.exo_proj.weight, p=2, dim=-1)   # [d_model, lookback]
+            cross_cos = torch.mm(w_endo, w_exo.t())                   # [d_model, d_model]
+            eeo_loss = torch.sum(cross_cos ** 2) / (self.d_model * self.d_model)
             penalty = penalty + eeo_strength * eeo_loss
 
         return penalty
+
+
+# Alias for backward compatibility
+EncoderDecoderTransformer = InvertedCustomTransformer
 
 
 # ==============================================================================
@@ -446,40 +420,39 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 128    # Seq2Seq optimal batch size for JPL
+BATCH_SIZE = 128   # Caltech variate-centric batch size (matching iTransformer baseline 07)
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Matching Seq2Seq optimal baseline 03 on JPL with weather)
-D_MODEL             = 128
-NUM_HEADS           = 8
-D_FF                = 512
+# Hyperparameters (Inverted Variate-Centric Transformer Backbone for Caltech)
+D_MODEL             = 64
+NUM_HEADS           = 4
+D_FF                = 256
 NUM_LAYERS          = 2
 DROPOUT_RATE        = 0.1
-LEARNING_RATE       = 0.0006097839109531517
-WEIGHT_DECAY        = 3.972110727381911e-06
+LEARNING_RATE       = 0.001
+WEIGHT_DECAY        = 1e-5
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
-ATTN_ORTHOGONAL_REG = 4.207053950287936e-06
-INTER_HEAD_ORTHOGONAL_REG = 3.1489116479568635e-05
-EEO_ORTHOGONAL_REG = 3.1489116479568635e-05
+ATTN_ORTHOGONAL_REG = 1e-5
+INTER_HEAD_ORTHOGONAL_REG = 1e-5
+EEO_ORTHOGONAL_REG = 1e-5
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
     "model_name": "00_tfm_custom_pytorch",
-    "architecture_paradigm": "encoder_decoder_seq2seq_fast_eeo_disentangled",
-    "base_model": "03_tfm_encdec_pytorch",
-    "version": "v6",
+    "architecture_paradigm": "inverted_variate_centric_transformer",
+    "base_model": "07_tfm_itfm_pytorch",
+    "version": "v7_direction1",
     "active_custom_features": [
-        "encoder_decoder_cross_attention",
-        "attention_orthogonal_regularization",
-        "inter_head_orthogonal_regularization",
+        "inverted_variate_tokenization",
+        "disentangled_eeo_variate_projections",
         "pre_ln_rmsnorm_backbone",
-        "disentangled_eeo_attention",
         "fast_sdpa_fused_attention",
         "independent_qkv_subspace_projections",
         "vectorized_batched_orthogonal_regularization",
+        "dual_context_readout_head",
         "zero_copy_gpu_resident_tensors"
     ],
     "attn_orthogonal_reg_strength": ATTN_ORTHOGONAL_REG,
@@ -487,7 +460,7 @@ results_data = {
     "eeo_orthogonal_reg_strength": EEO_ORTHOGONAL_REG,
     "num_endo_features": len(endo_indices),
     "num_exo_features": len(exo_indices),
-    "dataset": "acn_jpl_ready",
+    "dataset": "acn_caltech_ready2",
     "with_weather": True,
     "seeds": {},
     "summary": {}
@@ -532,10 +505,11 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     torch.cuda.manual_seed_all(SEED)
     np.random.seed(SEED)
 
-    model = EncoderDecoderTransformer(
+    model = InvertedCustomTransformer(
         lookback=LOOKBACK,
-        num_features=X_train_scaled.shape[1],
+        num_variates=X_train_scaled.shape[1],
         horizon=HORIZON,
+        target_ch_idx=TARGET_CH_IDX,
         d_model=D_MODEL,
         num_heads=NUM_HEADS,
         d_ff=D_FF,
@@ -753,12 +727,12 @@ with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
 print(f"Successfully saved final results to {output_json_filename}")
 
-# Automatically archive artifacts to outputs/acn_jpn/00_v6
+# Automatically archive artifacts to outputs/acn_caltech/00_tfm_custom_pytorch
 import shutil
-output_v6_dir = os.path.join("outputs", "acn_jpn", "00_v6")
-os.makedirs(output_v6_dir, exist_ok=True)
+output_target_dir = os.path.join("outputs", "acn_caltech", "00_tfm_custom_pytorch")
+os.makedirs(output_target_dir, exist_ok=True)
 for fname in [output_json_filename, "00_tfm_custom_pytorch_best.pt", "00_tfm_custom_pytorch_predictions.npz"]:
     if os.path.exists(fname):
-        shutil.copy(fname, os.path.join(output_v6_dir, fname))
-print(f"Successfully archived all artifacts to {output_v6_dir}/")
+        shutil.copy(fname, os.path.join(output_target_dir, fname))
+print(f"Successfully archived all artifacts to {output_target_dir}/")
 print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
