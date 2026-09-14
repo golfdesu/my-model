@@ -50,11 +50,17 @@ else
     echo "Warning: No virtualenv found, using default python: $(which python)"
 fi
 
+# 2. High-Performance Hopper & H100 Settings
+export PYTHONUNBUFFERED=1
+export NVIDIA_TF32_OVERRIDE=1
+export TORCH_CUDA_ARCH_LIST="9.0"
+export CUDA_DEVICE_ORDER="PCI_BUS_ID"
+
 echo "Python Executable   : $(which python)"
 python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA Available: {torch.cuda.is_available()}'); print(f'GPU Device: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'No GPU detected')"
 
-# 2. Run 1D Optuna Search for Attention Orthogonal Regularization
-python 00_hpo_tfm_custom_pytorch.py
+# 3. Run FULL Optuna Search for Model 00 Inverted Transformer
+python -u 00_hpo_tfm_custom_pytorch.py
 
 echo "=============================================================================="
 echo "HPO Completed at: $(date '+%Y-%m-%d %H:%M:%S')"
