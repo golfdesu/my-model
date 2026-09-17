@@ -45,9 +45,9 @@ python .agents/skills/literature-search-openalex/scripts/openalex_cli.py resolve
 
 ---
 
-## 1. The 3-Pillar Research Ecosystem
+## 1. The 4-Tier / 4-Pillar Research Ecosystem
 
-This workspace operates as part of a tightly coupled **3-Pillar Scientific Ecosystem**:
+This workspace operates as part of a tightly coupled **4-Pillar Scientific Ecosystem**:
 
 ```
 +-------------------------------------------------------------------------------+
@@ -77,9 +77,22 @@ This workspace operates as part of a tightly coupled **3-Pillar Scientific Ecosy
 |  - 32 Benchmark Models (00_*.py to 31_*.py)                                   |
 |  - 10-Seed Robustness Evaluation ([42, 123, ..., 9999])                       |
 |  - 9 Evaluation Metrics + VRAM + Runtime + Multi-step Loss Tracking           |
-|  - Publication Aggregator: tools/aggregate_benchmark.py                       |
-|  - LaTeX, CSV, Markdown Tables & Publication Figures                          |
+|  - Output Directory: outputs/<dataset>/<model_name>/                          |
+|  - Aggregation Engine: tools/aggregate_benchmark.py                           |
 +---------------------------------------+---------------------------------------+
+                                        | (Raw Results JSON & Predictions NPZ)
+                                        v
++---------------------------------------+---------------------------------------+
+|                 PILLAR 4: PUBLICATION VISUALIZATION ENGINE                    |
+|             Location: C:\Users\chaya\Documents\Program\Practice\bencmark      |
+|  - 4K UHD Figures Generator (generate_figures.py & figures.ipynb)             |
+|  - 01_rankings: 11-metric 3-tier horizontal bar charts                        |
+|  - 02_summary_analyses: Pareto frontier, 24h degradation, multi-horizon comp  |
+|  - 03_model00_deep_dive: 4-horizon showcase & 10-seed loss ribbon             |
+|  - 04_individual_forecasts: 32 individual 4-horizon profiles                  |
+|  - 05_individual_learning_curves: 29 individual 10-seed training traces       |
+|  - Shared Junctions: output/, plots/, docs/, .wikiskill/                     |
++-------------------------------------------------------------------------------+
 ```
 
 ### 1.1 External Academic Knowledge Base (Obsidian Thesis Vault & MLE Reference)
@@ -96,8 +109,18 @@ Whenever agents need theoretical context, literature review details, mathematica
 
 ### 1.2 Cross-Workspace Pipeline & Transitions
 - **Tuning (`../hyperparameter_tuning/`)**: Conducts 50-trial Optuna HPO and parsimony selection (`configs/selected_production_params.json`).
-- **Benchmarking (Here)**: Implements production architectures with selected parameters, running 10-seed deterministic evaluation (`SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]`). Raw results output to `<model_id>_results.json`.
-- **Aggregation & Publishing (Here)**: Run `python tools/aggregate_benchmark.py` to compile all results into LaTeX tables (`docs/benchmark_summary.tex`), Markdown tables (`docs/benchmark_summary.md`), CSV files (`outputs/benchmark_summary.csv`), and publication-quality plots in `plots/`.
+- **Benchmarking (Here)**: Implements production architectures with selected parameters, running 10-seed deterministic evaluation (`SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]`). Raw results output to `outputs/<dataset>/<model_name>/` and root `<model_id>_results.json`.
+- **Aggregation & Summary (Here)**: Run `python tools/aggregate_benchmark.py` to compile all results into LaTeX tables (`docs/benchmark_summary.tex`), Markdown tables (`docs/benchmark_summary.md`), CSV files (`outputs/benchmark_summary.csv`), and initial summary plots in `plots/`.
+- **Publication Graphics & 4K Visualization (`../bencmark/`)**: Run `python generate_figures.py all` in `../bencmark/` to produce all 316+ publication-grade 4K figures across rankings, Pareto frontier, 24h degradation curves, multi-horizon profiles, and per-seed convergence ribbons. All outputs and docs remain synchronized in real time via directory junctions.
+- **Progress Presentation (`C:\Users\chaya\Documents\Progress`)**: The companion presentation workspace for reporting project progress. The latest progress slide deck and related presentations should use this repository's verified `README.md`, `docs/`, `outputs/`, and `plots/` as their evidence sources. The presentation workspace does not replace benchmark documentation or experiment outputs.
+
+#### Presentation handoff rules
+
+1. Treat benchmark code, configuration, audit state, generated summaries, and plots in this repository as the source of truth.
+2. Before preparing or revising a progress slide, check the relevant current files under `docs/`, `outputs/`, and `plots/`; do not rely on stale slide text or copied numbers.
+3. Keep the presentation narrative aligned with the research pipeline: problem and motivation, protocol, proposed Model 00, baseline comparison, verified results, interpretation, limitations, and next steps.
+4. If a claim or metric cannot be traced to a current repository artifact, label it as pending or ask the user for the source; never infer or fabricate it.
+5. When benchmark results or audit status change, consider the latest progress slide deck in `C:\Users\chaya\Documents\Progress` a downstream deliverable that may need review, not an input to the benchmark pipeline.
 
 ---
 

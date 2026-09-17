@@ -146,23 +146,8 @@ def create_windowed_tensors(X_data, y_data, lookback, horizon):
     return X_t, y_t, np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32)
 
 # ==============================================================================
-# 3. Model Architecture (Vaswani et al. 2017 Backbone with Dual-Context Head)
+# 3. Model Architecture (Inverted Variate-Centric Transformer with Dual-Context Head)
 # ==============================================================================
-class PositionalEmbedding(nn.Module):
-    """Sinusoidal Positional Encoding (Vaswani et al., NIPS 2017, Sec 3.5)"""
-    def __init__(self, seq_len, d_model):
-        super().__init__()
-        pe = torch.zeros(seq_len, d_model)
-        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term[:pe[:, 1::2].size(1)])
-        self.register_buffer('pe', pe.unsqueeze(0))  # [1, seq_len, d_model]
-
-    def forward(self, x):
-        return x + self.pe[:, :x.size(1), :]
-
-
 class RMSNorm(nn.Module):
     """
     Root Mean Square Layer Normalization (Zhang & Sennrich, NeurIPS 2019; MLE Foundations Topic 150).
