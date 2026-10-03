@@ -129,7 +129,6 @@ MODELS=(
     "10_gru_baseline_pytorch.py:M10:10 GRU Baseline"
     "13_smamba_baseline_pytorch.py:M13:13 S-Mamba"
     "14_powermamba_baseline_pytorch.py:M14:14 PowerMamba"
-    "15_timemachine_baseline_pytorch.py:M15:15 TimeMachine"
     "16_s4d_baseline_pytorch.py:M16:16 S4D Baseline"
     "17_xgboost_baseline.py:M17:17 XGBoost Direct"
     "18_lightgbm_baseline.py:M18:18 LightGBM Direct"

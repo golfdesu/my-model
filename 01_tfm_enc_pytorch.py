@@ -59,17 +59,22 @@ else:
 # In[2]:
 
 # Load and clean dataset (Local path auto-detect for VS Code)
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'acn_caltech_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
 df = df.sort_index()  # safety: enforce chronological order before time-based split
 
-# Drop unneeded columns
-# Drop weather features (Ablation study: without weather)
-weather_cols = ['temp', 'rhum', 'prcp', 'wspd', 'pres', 'cldc', 'apparent_temp', 'tempDiff_48', 'tempMean_48']
-df = df.drop(columns=weather_cols, errors='ignore')
+# Drop unneeded noise columns (Paper Invariants: prcp, tempDiff_48, cldc)
+drop_noise_cols = ['prcp', 'tempDiff_48', 'cldc']
+df = df.drop(columns=drop_noise_cols, errors='ignore')
 
 cols = []
 for col in df.columns:
@@ -261,12 +266,12 @@ def run_benchmark():
         val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
         test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-        model = EncoderOnlyTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=32, num_heads=2, d_ff=64, num_layers=1, dropout_rate=0.1).to(device)
+        model = EncoderOnlyTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, num_heads=4, d_ff=256, num_layers=2, dropout_rate=0.05).to(device)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         results_data["total_parameters"] = total_params
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.0006435164431045694, weight_decay=4.188122177032396e-06)
+        optimizer = optim.Adam(model.parameters(), lr=0.00017620360927511926, weight_decay=2.6290264091588435e-05)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
         # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)

@@ -88,17 +88,22 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing (Scientific Invariants)
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready2.csv'
+    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'acn_caltech_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
 df = df.sort_index()  # Chronological order enforcement
-# Drop weather features (Ablation study: without weather)
-weather_cols = ['temp', 'rhum', 'prcp', 'wspd', 'pres', 'cldc', 'apparent_temp', 'tempDiff_48', 'tempMean_48']
-df = df.drop(columns=weather_cols, errors='ignore')
+
+# Drop unneeded noise columns (Paper Invariants: prcp, tempDiff_48, cldc)
+drop_noise_cols = ['prcp', 'tempDiff_48', 'cldc']
+df = df.drop(columns=drop_noise_cols, errors='ignore')
 
 cols = []
 for col in df.columns:
@@ -348,18 +353,18 @@ CONFIG = {
     "lookback": LOOKBACK,
     "num_features": num_total_features,
     "horizon": HORIZON,
-    "cnn_channels": 64,
-    "kernel_size": 3,
-    "lstm_hidden": 128,
-    "lstm_layers": 2,
+    "cnn_channels": 32,
+    "kernel_size": 5,
+    "lstm_hidden": 32,
+    "lstm_layers": 1,
     "d_model": 128,
-    "n_heads": 8,
-    "d_ff": 512,
-    "tfm_layers": 2,
-    "dropout": 0.05,
-    "learning_rate": 0.00016109123824818532,
-    "weight_decay": 1.752318043730273e-05,
-    "batch_size": 128,
+    "n_heads": 4,
+    "d_ff": 256,
+    "tfm_layers": 1,
+    "dropout": 0.2,
+    "learning_rate": 0.001109549360361615,
+    "weight_decay": 0.00015821830098174155,
+    "batch_size": 64,
     "epochs": 100,
     "patience": 12
 }

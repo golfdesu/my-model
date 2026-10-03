@@ -89,17 +89,22 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing (Scientific Invariants)
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready2.csv'
+    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'acn_caltech_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
 df = df.sort_index()
-# Drop weather features (Ablation study: without weather)
-weather_cols = ['temp', 'rhum', 'prcp', 'wspd', 'pres', 'cldc', 'apparent_temp', 'tempDiff_48', 'tempMean_48']
-df = df.drop(columns=weather_cols, errors='ignore')
+
+# Drop unneeded noise columns (Paper Invariants: prcp, tempDiff_48, cldc)
+drop_noise_cols = ['prcp', 'tempDiff_48', 'cldc']
+df = df.drop(columns=drop_noise_cols, errors='ignore')
 
 cols = []
 for col in df.columns:
@@ -368,11 +373,11 @@ CONFIG = {
     "num_features": num_total_features,
     "horizon": HORIZON,
     "pooling_sizes": [8, 4, 1],
-    "n_layers": 3,
+    "n_layers": 2,
     "hidden_dim": 256,
-    "dropout": 0.05,
-    "learning_rate": 0.00011058500546306239,
-    "weight_decay": 1.0327089770662047e-06,
+    "dropout": 0.2,
+    "learning_rate": 0.00015002591856337055,
+    "weight_decay": 4.398240692478501e-06,
     "batch_size": 256,
     "epochs": 100,
     "patience": 12

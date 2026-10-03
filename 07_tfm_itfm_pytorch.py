@@ -61,15 +61,22 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'acn_caltech_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
 df = df.sort_index()  # safety: enforce chronological order before time-based split
-# Drop weather features (Ablation study: without weather)
-weather_cols = ['temp', 'rhum', 'prcp', 'wspd', 'pres', 'cldc', 'apparent_temp', 'tempDiff_48', 'tempMean_48']
-df = df.drop(columns=weather_cols, errors='ignore')
+
+# Drop unneeded noise columns (Paper Invariants: prcp, tempDiff_48, cldc)
+drop_noise_cols = ['prcp', 'tempDiff_48', 'cldc']
+df = df.drop(columns=drop_noise_cols, errors='ignore')
 
 cols = []
 for col in df.columns:
@@ -209,7 +216,7 @@ import time
 
 LOOKBACK   = 96
 HORIZON    = 48
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 output_json_filename = "07_tfm_itfm_pytorch_results.json"
 results_data = {
@@ -257,7 +264,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
 
     model = iTransformerModel(
         lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON,
-        d_model=32, num_heads=4, d_ff=128, num_layers=3, dropout_rate=0.15
+        d_model=64, num_heads=4, d_ff=256, num_layers=3, dropout_rate=0.2
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -265,7 +272,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         print(f"Model Parameters: {total_params:,}")
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0017708585791417803, weight_decay=1.7209491444104483e-06)
+    optimizer = optim.Adam(model.parameters(), lr=0.0006411440232063922, weight_decay=6.3987395796471585e-06)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs          = 200

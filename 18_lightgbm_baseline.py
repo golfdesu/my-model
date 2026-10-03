@@ -32,15 +32,22 @@ except Exception:
 # ---------------------------------------------------------------
 # Data Loading & Preprocessing (same path auto-detect and split as other scripts)
 # ---------------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'acn_caltech_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
 df = df.sort_index()  # safety: enforce chronological order before time-based split
-# Drop weather features (Ablation study: without weather)
-weather_cols = ['temp', 'rhum', 'prcp', 'wspd', 'pres', 'cldc', 'apparent_temp', 'tempDiff_48', 'tempMean_48']
-df = df.drop(columns=weather_cols, errors='ignore')
+
+# Drop unneeded noise columns (Paper Invariants: prcp, tempDiff_48, cldc)
+drop_noise_cols = ['prcp', 'tempDiff_48', 'cldc']
+df = df.drop(columns=drop_noise_cols, errors='ignore')
 
 cols = []
 for col in df.columns:
@@ -162,18 +169,18 @@ LGB_PARAMS = dict(
     objective='regression',
     metric='mae',
     n_estimators=1000,
-    learning_rate=0.0782912324448459,
-    num_leaves=55,
+    learning_rate=0.0612075396761392,
+    num_leaves=46,
     max_depth=4,
-    min_child_samples=94,
-    subsample=0.8863926539765621,
+    min_child_samples=83,
+    subsample=0.8087572609645546,
     # CRITICAL: LightGBM only enables bagging when subsample_freq > 0.
     # Without this, subsample=0.8 is silently ignored (data used 100% every tree),
     # making the XGBoost comparison unfair. freq=1 = resample every iteration.
     subsample_freq=1,
-    colsample_bytree=0.5965008670020099,
-    reg_alpha=0.013878630634523076,
-    reg_lambda=0.0005197186104644345,
+    colsample_bytree=0.5130687623934276,
+    reg_alpha=0.0016503375163466273,
+    reg_lambda=4.508969119879873,
     max_bin=128,
     random_state=42,
     n_jobs=-1,

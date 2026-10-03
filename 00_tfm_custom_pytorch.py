@@ -69,7 +69,13 @@ else:
 # ==============================================================================
 # 1. Dataset Loading & Preprocessing (Caltech with Weather)
 # ==============================================================================
-data_path = '../data_cleaned/acn_caltech_ready2.csv'
+data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'acn_caltech_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -409,24 +415,24 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 64    # Selected by Full HPO (Trial 14)
+BATCH_SIZE = 64    # Selected by Caltech V3 HPO (Trial 11)
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on Caltech)
-D_MODEL             = 128
+# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on Caltech V3)
+D_MODEL             = 64
 NUM_HEADS           = 8
-D_FF                = 512
+D_FF                = 128
 NUM_LAYERS          = 3
-DROPOUT_RATE        = 0.1
-LEARNING_RATE       = 0.00038608860950560737
-WEIGHT_DECAY        = 1.000134592489716e-05
+DROPOUT_RATE        = 0.15000000000000002
+LEARNING_RATE       = 0.0011416713505120574
+WEIGHT_DECAY        = 1.7199143101883074e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
-ATTN_ORTHOGONAL_REG       = 6.842882094148905e-05
-INTER_HEAD_ORTHOGONAL_REG = 0.0002480116648234053
-EEO_ORTHOGONAL_REG        = 1.1175530342864682e-05
+ATTN_ORTHOGONAL_REG       = 2.4683254064364284e-05
+INTER_HEAD_ORTHOGONAL_REG = 1.6563261989333484e-05
+EEO_ORTHOGONAL_REG        = 2.623688117851724e-05
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
@@ -449,7 +455,7 @@ results_data = {
     "eeo_orthogonal_reg_strength": EEO_ORTHOGONAL_REG,
     "num_endo_features": len(endo_indices),
     "num_exo_features": len(exo_indices),
-    "dataset": "acn_caltech_ready2",
+    "dataset": "acn_caltech_ready_v3",
     "with_weather": True,
     "seeds": {},
     "summary": {}
