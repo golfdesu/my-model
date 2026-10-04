@@ -244,13 +244,13 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
     test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-    # Build Model
-    model = DecoderOnlyTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=32, num_heads=4, d_ff=64, num_layers=1, dropout_rate=0.05).to(device)
+    # Build Model (Selected by Caltech V3 HPO: Trial 16)
+    model = DecoderOnlyTransformer(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=128, num_heads=2, d_ff=256, num_layers=1, dropout_rate=0.2).to(device)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     results_data["total_parameters"] = total_params
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0006854170941165302, weight_decay=5.125998866077592e-06)
+    optimizer = optim.Adam(model.parameters(), lr=0.0006449618886971441, weight_decay=2.8937722297072462e-05)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)
