@@ -89,13 +89,17 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing (Scientific Invariants)
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready_v3.csv'
+    data_path = 'acn_jpl_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -373,12 +377,12 @@ CONFIG = {
     "num_features": num_total_features,
     "horizon": HORIZON,
     "pooling_sizes": [8, 4, 1],
-    "n_layers": 2,
-    "hidden_dim": 256,
-    "dropout": 0.2,
-    "learning_rate": 0.00015002591856337055,
-    "weight_decay": 4.398240692478501e-06,
-    "batch_size": 256,
+    "n_layers": 3,
+    "hidden_dim": 128,
+    "dropout": 0.05,
+    "learning_rate": 0.0003626528723164559,
+    "weight_decay": 7.714680940865178e-05,
+    "batch_size": 128,
     "epochs": 100,
     "patience": 12
 }

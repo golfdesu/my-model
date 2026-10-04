@@ -58,13 +58,17 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # Load and clean dataset (Local path auto-detect)
-data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready_v3.csv'
+    data_path = 'acn_jpl_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -340,11 +344,11 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
     test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-    model = SMambaModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=64, d_state=32, num_layers=2, dropout_rate=0.25, target_idx=TARGET_CH_IDX).to(device)
+    model = SMambaModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=128, d_state=8, num_layers=2, dropout_rate=0.25, target_idx=TARGET_CH_IDX).to(device)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     results_data["total_parameters"] = total_params
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.00014864089382562044, weight_decay=2.2287883027388866e-06)
+    optimizer = optim.Adam(model.parameters(), lr=0.00030623490543540917, weight_decay=1.2849200489000954e-06)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs = 200

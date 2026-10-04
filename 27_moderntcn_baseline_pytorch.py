@@ -69,13 +69,17 @@ if __name__ == '__main__':
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready_v3.csv'
+    data_path = 'acn_jpl_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -403,13 +407,13 @@ CONFIG = {
     "patch_size": 8,
     "patch_stride": 4,
     "d_model": 64,
-    "kernel_size": 13,
-    "num_layers": 2,
-    "ffn_ratio": 1,
-    "dropout": 0.15,
-    "learning_rate": 0.001996796936638999,
-    "weight_decay": 1.1779940271265723e-05,
-    "batch_size": 128,
+    "kernel_size": 49,
+    "num_layers": 1,
+    "ffn_ratio": 2,
+    "dropout": 0.2,
+    "learning_rate": 0.0015975802430087582,
+    "weight_decay": 0.00013661510961304665,
+    "batch_size": 64,
     "epochs": 200,
     "patience": 15
 }

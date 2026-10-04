@@ -90,13 +90,17 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing (Scientific Invariants)
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready_v3.csv'
+    data_path = 'acn_jpl_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -524,17 +528,17 @@ CONFIG = {
     "lookback": LOOKBACK,
     "num_features": num_total_features,
     "horizon": HORIZON,
-    "d_model": 32,
-    "n_heads": 8,
-    "modes": 24,
-    "num_encoder_layers": 2,
-    "num_decoder_layers": 1,
-    "d_ff": 128,
+    "d_model": 64,
+    "n_heads": 4,
+    "modes": 16,
+    "num_encoder_layers": 1,
+    "num_decoder_layers": 2,
+    "d_ff": 256,
     "dropout": 0.15,
     "kernel_size": 49,
-    "learning_rate": 0.0006090562260935274,
-    "weight_decay": 1.519172660369855e-06,
-    "batch_size": 128,
+    "learning_rate": 0.0011233209577485024,
+    "weight_decay": 0.00048783606034521424,
+    "batch_size": 64,
     "epochs": 100,
     "patience": 12
 }

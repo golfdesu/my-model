@@ -67,15 +67,19 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # ==============================================================================
-# 1. Dataset Loading & Preprocessing (Caltech with Weather)
+# 1. Dataset Loading & Preprocessing (JPN with Weather)
 # ==============================================================================
-data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready_v3.csv'
+    data_path = 'acn_jpl_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -415,24 +419,24 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 64    # Selected by Caltech V3 HPO (Trial 48 - Fair Structural Parity with iTransformer)
+BATCH_SIZE = 64    # Selected by JPN V3 HPO (Trial 31 - Fair Structural Parity with iTransformer)
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on Caltech V3: Trial 48)
-D_MODEL             = 64
+# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on JPN V3: Trial 31)
+D_MODEL             = 128
 NUM_HEADS           = 2
-D_FF                = 256
+D_FF                = 512
 NUM_LAYERS          = 3
-DROPOUT_RATE        = 0.1
-LEARNING_RATE       = 0.0004005653446483426
-WEIGHT_DECAY        = 9.13589898091098e-06
+DROPOUT_RATE        = 0.05
+LEARNING_RATE       = 0.0004401566519635752
+WEIGHT_DECAY        = 5.510373516790183e-05
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
-ATTN_ORTHOGONAL_REG       = 0.00012909085263319593
-INTER_HEAD_ORTHOGONAL_REG = 7.094280101745237e-05
-EEO_ORTHOGONAL_REG        = 0.00043656998363732024
+ATTN_ORTHOGONAL_REG       = 1.4524446298506432e-05
+INTER_HEAD_ORTHOGONAL_REG = 0.0008168309750788716
+EEO_ORTHOGONAL_REG        = 5.4714824360234555e-06
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
@@ -455,7 +459,7 @@ results_data = {
     "eeo_orthogonal_reg_strength": EEO_ORTHOGONAL_REG,
     "num_endo_features": len(endo_indices),
     "num_exo_features": len(exo_indices),
-    "dataset": "acn_caltech_ready_v3",
+    "dataset": "acn_jpl_ready_v3",
     "with_weather": True,
     "seeds": {},
     "summary": {}
@@ -723,9 +727,9 @@ with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
 print(f"Successfully saved final results to {output_json_filename}")
 
-# Automatically archive artifacts to outputs/acn_caltech/00_tfm_custom_pytorch
+# Automatically archive artifacts to outputs/acn_jpn/00_tfm_custom_pytorch
 import shutil
-output_target_dir = os.path.join("outputs", "acn_caltech", "00_tfm_custom_pytorch")
+output_target_dir = os.path.join("outputs", "acn_jpn", "00_tfm_custom_pytorch")
 os.makedirs(output_target_dir, exist_ok=True)
 for fname in [output_json_filename, "00_tfm_custom_pytorch_best.pt", "00_tfm_custom_pytorch_predictions.npz"]:
     if os.path.exists(fname):

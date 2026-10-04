@@ -88,13 +88,17 @@ else:
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing (Scientific Invariants)
 # ---------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready_v3.csv'
+    data_path = 'acn_jpl_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -354,16 +358,16 @@ CONFIG = {
     "num_features": num_total_features,
     "horizon": HORIZON,
     "cnn_channels": 32,
-    "kernel_size": 5,
-    "lstm_hidden": 32,
+    "kernel_size": 3,
+    "lstm_hidden": 64,
     "lstm_layers": 1,
-    "d_model": 128,
-    "n_heads": 4,
+    "d_model": 64,
+    "n_heads": 8,
     "d_ff": 256,
-    "tfm_layers": 1,
+    "tfm_layers": 2,
     "dropout": 0.2,
-    "learning_rate": 0.001109549360361615,
-    "weight_decay": 0.00015821830098174155,
+    "learning_rate": 0.0014360134265474249,
+    "weight_decay": 1.396792864930376e-05,
     "batch_size": 64,
     "epochs": 100,
     "patience": 12

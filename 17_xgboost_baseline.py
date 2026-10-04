@@ -39,13 +39,17 @@ except Exception:
 # ---------------------------------------------------------------
 # Data Loading & Preprocessing (same path auto-detect and split as other scripts)
 # ---------------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready_v3.csv'
+    data_path = 'acn_jpl_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -177,13 +181,13 @@ XGB_PARAMS = dict(
     objective='reg:squarederror',
     eval_metric='mae',
     n_estimators=1000,
-    learning_rate=0.09630276585598742,
+    learning_rate=0.019302364060748006,
     max_depth=5,            # XGBoost uses max_depth rather than LightGBM's num_leaves
-    min_child_weight=6.722196570662773,
-    subsample=0.548292860681018,
-    colsample_bytree=0.5020346162094566,
-    reg_alpha=8.114659773907153,
-    reg_lambda=6.470480796341733,
+    min_child_weight=3.730313948759864,
+    subsample=0.5993562807119999,
+    colsample_bytree=0.8751647183860229,
+    reg_alpha=1.8386777531998297,
+    reg_lambda=1.2303752130248193,
     random_state=42,
     n_jobs=-1,
     tree_method='hist',     # fast histogram-based method, comparable to LightGBM's default

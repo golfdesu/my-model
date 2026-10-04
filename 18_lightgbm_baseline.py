@@ -32,13 +32,17 @@ except Exception:
 # ---------------------------------------------------------------
 # Data Loading & Preprocessing (same path auto-detect and split as other scripts)
 # ---------------------------------------------------------------
-data_path = '../data_cleaned/acn_caltech_ready_v3.csv'
+data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_caltech_ready_v3.csv'
+    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
 if not os.path.exists(data_path):
-    data_path = 'acn_caltech_ready_v3.csv'
+    data_path = 'acn_jpl_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
+if not os.path.exists(data_path):
+    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -169,18 +173,18 @@ LGB_PARAMS = dict(
     objective='regression',
     metric='mae',
     n_estimators=1000,
-    learning_rate=0.0612075396761392,
-    num_leaves=46,
-    max_depth=4,
-    min_child_samples=83,
-    subsample=0.8087572609645546,
+    learning_rate=0.017124212405452203,
+    num_leaves=63,
+    max_depth=8,
+    min_child_samples=60,
+    subsample=0.7892486015906033,
     # CRITICAL: LightGBM only enables bagging when subsample_freq > 0.
     # Without this, subsample=0.8 is silently ignored (data used 100% every tree),
     # making the XGBoost comparison unfair. freq=1 = resample every iteration.
     subsample_freq=1,
-    colsample_bytree=0.5130687623934276,
-    reg_alpha=0.0016503375163466273,
-    reg_lambda=4.508969119879873,
+    colsample_bytree=0.6728468726241332,
+    reg_alpha=0.06386242152963897,
+    reg_lambda=0.09445609866672112,
     max_bin=128,
     random_state=42,
     n_jobs=-1,
