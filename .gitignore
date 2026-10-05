@@ -32,6 +32,8 @@ __pycache__/
 .agents/
 .wikiskill/
 archive/
+!archive/inactive_baselines/
+!archive/inactive_baselines/**
 configs/
 docs/
 logs/
