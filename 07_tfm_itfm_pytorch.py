@@ -220,7 +220,7 @@ import time
 
 LOOKBACK   = 96
 HORIZON    = 48
-BATCH_SIZE = 128
+BATCH_SIZE = 32
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 output_json_filename = "07_tfm_itfm_pytorch_results.json"
 results_data = {
@@ -276,7 +276,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         print(f"Model Parameters: {total_params:,}")
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.0011102397097117567, weight_decay=1.0189401090944762e-06)
+    optimizer = optim.Adam(model.parameters(), lr=0.0005777504589868042, weight_decay=5.649987792476256e-06)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs          = 200

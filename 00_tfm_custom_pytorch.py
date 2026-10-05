@@ -419,24 +419,24 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 64    # Selected by JPN V3 HPO (Trial 31 - Fair Structural Parity with iTransformer)
+BATCH_SIZE = 32    # Selected by JPN V3 HPO (Trial 19 - Locked Capacity Parity with Baselines)
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on JPN V3: Trial 31)
+# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on JPN V3: Trial 19)
 D_MODEL             = 128
-NUM_HEADS           = 2
+NUM_HEADS           = 8
 D_FF                = 512
-NUM_LAYERS          = 3
-DROPOUT_RATE        = 0.05
-LEARNING_RATE       = 0.0004401566519635752
-WEIGHT_DECAY        = 5.510373516790183e-05
+NUM_LAYERS          = 2
+DROPOUT_RATE        = 0.1
+LEARNING_RATE       = 0.0001493931976721778
+WEIGHT_DECAY        = 8.492935741365948e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
-ATTN_ORTHOGONAL_REG       = 1.4524446298506432e-05
-INTER_HEAD_ORTHOGONAL_REG = 0.0008168309750788716
-EEO_ORTHOGONAL_REG        = 5.4714824360234555e-06
+ATTN_ORTHOGONAL_REG       = 0.00010565582330168113
+INTER_HEAD_ORTHOGONAL_REG = 2.7131713354741595e-05
+EEO_ORTHOGONAL_REG        = 4.344012725210976e-06
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
