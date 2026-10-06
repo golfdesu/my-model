@@ -3,19 +3,21 @@
 
 # # 00_tfm_custom_pytorch.py
 # Model 00 (Proposed): Inverted Variate-Centric Custom Transformer in PyTorch (L=96, H=48)
+# Version: v8 (Adaptive Gated Residual Dual-Pathway & Composite Balanced Regularization)
 # Key Architectural Mechanisms:
 # - Inverted Variate Tokenization: Each variate time series is projected into a d_model token
 # - Endogenous-Exogenous Subspace Disentanglement: Dual input projection layers (endo_proj & exo_proj)
-# - Vectorized Batched Orthogonal Regularization:
-#     * Intra-Matrix Isometry: Gram matrix isometric penalty on Q, K, V, Out attention projections
-#     * Inter-Head Diversity: Normalized Gram matrix off-diagonal penalty across attention heads
-#     * EEO Cross-Subspace Orthogonality: Normalized cosine similarity penalty between endo & exo weights
+# - Adaptive Gated Residual Readout Head: Decoupled direct target pathway + gated cross-variate context MLP
+# - Composite Balanced Forecast Loss: Joint MSE (L2 outlier/surge variance control) + Smooth L1 (median MAE alignment)
+# - Dynamic Cosine-Annealed Orthogonal Regularization:
+#     * Early Representation Learning: Full isometric penalty on Q, K, V, Out + inter-head + EEO decoupling
+#     * Late Convergence Fine-Tuning: Cosine decay relaxing algebraic constraints for optimal task loss minimum
 # - Pre-LN RMSNorm + Hardware-Accelerated FastSDPA (Native PyTorch Scaled Dot-Product Attention)
-# - Dual-Context Readout Projection Head: Target variate token concatenated with global context mean
-# - Master Production Benchmark Script (Caltech ACN with Weather, 10-Seed Deterministic Protocol)
+# - Master Production Benchmark Script (Multi-Dataset Caltech/JPL with Weather, 10-Seed Deterministic Protocol)
 
 import sys
 import os
+import math
 if hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -230,10 +232,49 @@ class FastMHA(nn.Module):
         return self.out_proj(attn_out)
 
 
+class AdaptiveGatedReadoutHead(nn.Module):
+    """
+    Adaptive Gated Residual Readout Head (v8 Architectural Upgrade)
+
+    Decouples the forecasting projection into dual pathways:
+    1. Direct Target Pathway (Linear(d_model, horizon)):
+       Directly maps the encoded target variate token to the 48-step forecast horizon.
+       Preserves uncorrupted, dropout-free linear mapping of historical load dynamics,
+       matching the baseline inductive strength of iTransformer (Model 07).
+    2. Contextual Auxiliary Pathway (MLP: Linear -> GELU -> Dropout -> Linear):
+       Projects the global cross-variate mean token embedding to capture auxiliary
+       exogenous interactions (ambient weather physics and temporal calendar context).
+    3. Learnable Adaptive Step-Wise Gate (Sigmoid(Linear(d_model, horizon))):
+       Modulates the contextual contribution per forecast step. Initialized with
+       bias = -2.0 (initial gate ~ 0.12), ensuring conservative injection that opens
+       only when cross-variate signals reduce prediction error.
+    """
+    def __init__(self, d_model, horizon, dropout_rate=0.1):
+        super().__init__()
+        self.direct_proj = nn.Linear(d_model, horizon)
+        self.context_mlp = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(d_model, horizon)
+        )
+        self.gate_proj = nn.Linear(d_model, horizon)
+        nn.init.constant_(self.gate_proj.bias, -2.0)
+        nn.init.xavier_uniform_(self.gate_proj.weight, gain=0.01)
+
+    def forward(self, target_token, global_context):
+        # target_token: [batch, d_model]
+        # global_context: [batch, d_model]
+        direct_out = self.direct_proj(target_token)          # [batch, horizon]
+        context_out = self.context_mlp(global_context)       # [batch, horizon]
+        gate = torch.sigmoid(self.gate_proj(target_token))   # [batch, horizon]
+        return direct_out + gate * context_out
+
+
 class InvertedCustomTransformer(nn.Module):
     """
     Model 00 Inverted Variate-Centric Transformer with EEO Disentangled Embedding
-    and Multi-Head Cross-Variate Orthogonal Regularization (v7 Direction 1 Engine).
+    and Multi-Head Cross-Variate Orthogonal Regularization (v8 Engine).
 
     Key Architectural Mechanisms:
     1. Inverted Variate Tokenization:
@@ -252,9 +293,9 @@ class InvertedCustomTransformer(nn.Module):
        - Intra-Matrix Isometry: W^T W approx I on Q, K, V, Out projections.
        - Inter-Head Diversity: Forces heads to attend to distinct variate relationships (Autocorrelation, Calendar, Weather).
        - EEO Cross-Subspace Orthogonality: Penalizes cross-correlation between endo_proj and exo_proj weight spaces.
-    5. Dual-Context Target Readout Head:
-       - Combines target variate token representation with global average pooled context across all variates.
-       - Direct multi-step projection to forecast horizon H = 48 steps simultaneously.
+    5. Adaptive Gated Residual Readout Head (v8 Upgrade):
+       - Dual-pathway: uncorrupted target token direct linear projection + gated cross-variate contextual projection.
+       - Solves the readout dilution bottleneck while retaining auxiliary weather/calendar feature interactions.
     """
     def __init__(self, lookback, num_features=None, num_variates=None, horizon=48, target_ch_idx=None,
                  d_model=64, num_heads=4, d_ff=256, num_layers=2, dropout_rate=0.1,
@@ -302,13 +343,8 @@ class InvertedCustomTransformer(nn.Module):
         self.enc_final_norm = RMSNorm(d_model)
         self.drop_enc = nn.Dropout(dropout_rate)
 
-        # Dual-Context Readout Head: Target Token + Global Cross-Variate Mean Context
-        self.out_head = nn.Sequential(
-            nn.Linear(2 * d_model, d_model),
-            nn.GELU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(d_model, horizon)
-        )
+        # Adaptive Gated Residual Readout Head (v8 Upgrade)
+        self.out_head = AdaptiveGatedReadoutHead(d_model, horizon, dropout_rate=dropout_rate)
 
         # Pre-cache attention layer references for zero-overhead vectorized penalty computation
         self.all_attn_layers = list(self.enc_attn)
@@ -340,11 +376,10 @@ class InvertedCustomTransformer(nn.Module):
 
         tokens = self.enc_final_norm(tokens)
 
-        # Dual-Context Target Readout Head
+        # Adaptive Gated Residual Readout Head (Dual-Pathway)
         target_token = tokens[:, self.target_ch_idx, :]          # [batch, d_model]
         global_mean  = torch.mean(tokens, dim=1)                  # [batch, d_model]
-        context = torch.cat([target_token, global_mean], dim=-1) # [batch, 2 * d_model]
-        out = self.out_head(context)                              # [batch, horizon]
+        out = self.out_head(target_token, global_mean)            # [batch, horizon]
         return out
 
     def compute_vectorized_orthogonal_penalty(self, strength=1e-5, inter_head_strength=1e-5, eeo_strength=1e-5):
@@ -399,8 +434,34 @@ EncoderDecoderTransformer = InvertedCustomTransformer
 
 
 # ==============================================================================
-# 4. Custom Feature: Attention Orthogonal Regularization Helper
+# 4. Custom Feature: Loss Function & Orthogonal Regularization Helpers (v8)
 # ==============================================================================
+def compute_composite_forecast_loss(pred, target, alpha=0.5, beta=0.05):
+    """
+    Composite Balanced Forecast Loss (v8 Upgrade)
+    Balances L2 (MSE) for extreme surge variance control and L1 (Smooth L1 / Huber)
+    for fine-grained median error precision.
+    """
+    loss_l2 = F.mse_loss(pred, target)
+    loss_l1 = F.smooth_l1_loss(pred, target, beta=beta)
+    return alpha * loss_l2 + (1.0 - alpha) * loss_l1
+
+
+def get_orthogonal_reg_multiplier(epoch, max_epochs, warmup_ratio=0.25, min_ratio=0.1):
+    """
+    Dynamic Cosine Annealing Multiplier for Orthogonal Regularization (v8 Upgrade)
+    Phase 1 (Epochs 1 to warmup): Multiplier = 1.0 (Full isometric penalty).
+    Phase 2 (Epochs warmup to max_epochs): Cosine decay down to min_ratio.
+    Smoothly relaxes algebraic constraints during late-stage fine-tuning.
+    """
+    warmup_epochs = int(max_epochs * warmup_ratio)
+    if epoch <= warmup_epochs:
+        return 1.0
+    progress = (epoch - warmup_epochs) / max(1, max_epochs - warmup_epochs)
+    cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+    return min_ratio + (1.0 - min_ratio) * cosine_decay
+
+
 def compute_orthogonal_penalty(model, strength=1e-5, inter_head_strength=1e-5, eeo_strength=1e-5, num_heads=8):
     if hasattr(model, 'compute_vectorized_orthogonal_penalty'):
         return model.compute_vectorized_orthogonal_penalty(strength, inter_head_strength, eeo_strength)
@@ -438,31 +499,54 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 32    # Selected by Caltech V3 HPO (Trial 15 - Parsimonious Robust Parity)
+BATCH_SIZE = 32    # Selected by HPO
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on Caltech V3: Trial 15 Parsimonious)
-D_MODEL             = 128
-NUM_HEADS           = 8
-D_FF                = 512
-NUM_LAYERS          = 2
-DROPOUT_RATE        = 0.2
-LEARNING_RATE       = 0.0004299749266334553
-WEIGHT_DECAY        = 2.000844389639091e-06
-PATIENCE            = 15
-LR_SCHEDULER_PATIENCE = 5
+# Dataset-Specific Parsimonious Hyperparameters
+if 'jpl' in dataset_name_tag.lower() or 'jpn' in dataset_name_tag.lower():
+    # NASA JPL V3 (Trial 19 Parsimonious)
+    D_MODEL             = 128
+    NUM_HEADS           = 8
+    D_FF                = 512
+    NUM_LAYERS          = 2
+    DROPOUT_RATE        = 0.1
+    LEARNING_RATE       = 0.0001493931976721778
+    WEIGHT_DECAY        = 8.492935741365948e-06
+    PATIENCE            = 15
+    LR_SCHEDULER_PATIENCE = 5
+    ATTN_ORTHOGONAL_REG       = 0.00010565582330168113
+    INTER_HEAD_ORTHOGONAL_REG = 2.7131713354741595e-05
+    EEO_ORTHOGONAL_REG        = 4.344012725210976e-06
+    print("Loaded Parsimonious Parameters for NASA JPL V3 (Trial 19)")
+else:
+    # Caltech V3 (Trial 15 Parsimonious)
+    D_MODEL             = 128
+    NUM_HEADS           = 8
+    D_FF                = 512
+    NUM_LAYERS          = 2
+    DROPOUT_RATE        = 0.2
+    LEARNING_RATE       = 0.0004299749266334553
+    WEIGHT_DECAY        = 2.000844389639091e-06
+    PATIENCE            = 15
+    LR_SCHEDULER_PATIENCE = 5
+    ATTN_ORTHOGONAL_REG       = 0.0031134843833110284
+    INTER_HEAD_ORTHOGONAL_REG = 3.099246938221801e-05
+    EEO_ORTHOGONAL_REG        = 1.2016244471675806e-05
+    print("Loaded Parsimonious Parameters for Caltech V3 (Trial 15)")
 
-# Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
-ATTN_ORTHOGONAL_REG       = 0.0031134843833110284
-INTER_HEAD_ORTHOGONAL_REG = 3.099246938221801e-05
-EEO_ORTHOGONAL_REG        = 1.2016244471675806e-05
-
+dataset_suffix = "_caltech" if "caltech" in dataset_name_tag.lower() else "_jpl"
 output_json_filename = "00_tfm_custom_pytorch_results.json"
+output_json_dataset_filename = f"00_tfm_custom_pytorch{dataset_suffix}_results.json"
+output_pt_filename = "00_tfm_custom_pytorch_best.pt"
+output_pt_dataset_filename = f"00_tfm_custom_pytorch{dataset_suffix}_best.pt"
+output_npz_filename = "00_tfm_custom_pytorch_predictions.npz"
+output_npz_dataset_filename = f"00_tfm_custom_pytorch{dataset_suffix}_predictions.npz"
+
 results_data = {
     "model_name": "00_tfm_custom_pytorch",
     "architecture_paradigm": "inverted_variate_centric_transformer",
     "base_model": "07_tfm_itfm_pytorch",
-    "version": "v7_direction1",
+    "version": "v8_gated_residual_composite",
     "active_custom_features": [
         "inverted_variate_tokenization",
         "disentangled_eeo_variate_projections",
@@ -470,7 +554,9 @@ results_data = {
         "fast_sdpa_fused_attention",
         "independent_qkv_subspace_projections",
         "vectorized_batched_orthogonal_regularization",
-        "dual_context_readout_head",
+        "adaptive_gated_residual_readout_head",
+        "composite_balanced_forecast_loss",
+        "dynamic_cosine_annealed_orthogonal_regularization",
         "zero_copy_gpu_resident_tensors"
     ],
     "attn_orthogonal_reg_strength": ATTN_ORTHOGONAL_REG,
@@ -558,6 +644,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
         model.train()
         train_loss = 0.0
         perm = torch.randperm(n_train, device=device)
+        reg_mult = get_orthogonal_reg_multiplier(epoch, epochs, warmup_ratio=0.25, min_ratio=0.1)
         for b_i in range(n_batches_train):
             idx = perm[b_i * BATCH_SIZE : (b_i + 1) * BATCH_SIZE]
             batch_X = X_train_dev[idx]
@@ -566,19 +653,19 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
             optimizer.zero_grad(set_to_none=True)
             out = model(batch_X)
 
-            # Primary MSE Loss + [ACTIVE CUSTOM FEATURE] Vectorized Batched Orthogonal Regularization
-            mse_loss = criterion(out, batch_y)
+            # Primary Composite Balanced Forecast Loss + Dynamic Cosine Annealed Orthogonal Regularization
+            forecast_loss = compute_composite_forecast_loss(out, batch_y, alpha=0.5, beta=0.05)
             ortho_loss = model.compute_vectorized_orthogonal_penalty(
-                strength=ATTN_ORTHOGONAL_REG,
-                inter_head_strength=INTER_HEAD_ORTHOGONAL_REG,
-                eeo_strength=EEO_ORTHOGONAL_REG
+                strength=ATTN_ORTHOGONAL_REG * reg_mult,
+                inter_head_strength=INTER_HEAD_ORTHOGONAL_REG * reg_mult,
+                eeo_strength=EEO_ORTHOGONAL_REG * reg_mult
             )
-            loss = mse_loss + ortho_loss
+            loss = forecast_loss + ortho_loss
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            train_loss += mse_loss.item() * BATCH_SIZE
+            train_loss += forecast_loss.item() * BATCH_SIZE
 
         train_loss /= (n_batches_train * BATCH_SIZE)
 
@@ -591,7 +678,7 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
                 batch_X = X_val_dev[v_i : v_i + eval_batch_size]
                 batch_y = y_val_dev[v_i : v_i + eval_batch_size]
                 out = model(batch_X)
-                loss = criterion(out, batch_y)
+                loss = compute_composite_forecast_loss(out, batch_y, alpha=0.5, beta=0.05)
                 val_loss += loss.item() * batch_X.size(0)
 
         val_loss /= n_val
@@ -677,9 +764,10 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     if best_val_loss < best_overall_val_loss and best_model_weights is not None:
         best_overall_val_loss = best_val_loss
         best_seed_id = SEED
-        torch.save(best_model_weights, "00_tfm_custom_pytorch_best.pt")
+        torch.save(best_model_weights, output_pt_filename)
+        torch.save(best_model_weights, output_pt_dataset_filename)
         results_data["best_seed"] = int(SEED)
-        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> 00_tfm_custom_pytorch_best.pt")
+        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> {output_pt_filename} & {output_pt_dataset_filename}")
 
     results_data["seeds"][str(SEED)] = {
         "training_time_seconds": seed_duration,
@@ -698,15 +786,18 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     }
     with open(output_json_filename, "w", encoding="utf-8") as f:
         json.dump(results_data, f, indent=2)
-    print(f"Successfully saved SEED {SEED} results to {output_json_filename} (Runtime: {seed_duration}s)")
+    with open(output_json_dataset_filename, "w", encoding="utf-8") as f:
+        json.dump(results_data, f, indent=2)
+    print(f"Successfully saved SEED {SEED} results to {output_json_filename} & {output_json_dataset_filename} (Runtime: {seed_duration}s)")
     gc.collect()
 
 all_predictions["y_true"] = y_test_seq_unscaled.astype(np.float32)
 pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in SEEDS], axis=0)
 all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
 all_predictions["pred_std"] = np.std(pred_stack, axis=0).astype(np.float32)
-np.savez_compressed("00_tfm_custom_pytorch_predictions.npz", **all_predictions)
-print(f"Successfully saved all seed predictions to 00_tfm_custom_pytorch_predictions.npz")
+np.savez_compressed(output_npz_filename, **all_predictions)
+np.savez_compressed(output_npz_dataset_filename, **all_predictions)
+print(f"Successfully saved all seed predictions to {output_npz_filename} & {output_npz_dataset_filename}")
 
 print(f"\n======================================================================")
 print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — 00_tfm_custom_pytorch")
