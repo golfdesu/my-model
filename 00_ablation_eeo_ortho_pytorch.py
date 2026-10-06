@@ -275,13 +275,19 @@ DATASET_CONFIGS = {
             'data_cleaned/acn_jpn_ready_v3.csv'
         ],
         'v1_candidates': [
+            'outputs/alr_fix/acn_jpn_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
+            'outputs/alr_fix/acn_jpl_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
             'outputs/acn_jpn_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
             'outputs/acn_jpl_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
+            'outputs/not_fix/acn_jpn_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
             '00_tfm_custom_pytorch_results.json'
         ],
         'm07_candidates': [
+            'outputs/alr_fix/acn_jpn_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
+            'outputs/alr_fix/acn_jpl_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
             'outputs/acn_jpn_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
             'outputs/acn_jpl_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
+            'outputs/not_fix/acn_jpn_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
             '07_tfm_itfm_pytorch_results.json'
         ],
         'd_model': 128,
@@ -310,11 +316,15 @@ DATASET_CONFIGS = {
             'data_cleaned/acn_caltech_ready2.csv'
         ],
         'v1_candidates': [
+            'outputs/alr_fix/acn_caltech_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
             'outputs/acn_caltech_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
+            'outputs/not_fix/acn_caltech_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
             '00_tfm_custom_pytorch_results.json'
         ],
         'm07_candidates': [
+            'outputs/alr_fix/acn_caltech_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
             'outputs/acn_caltech_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
+            'outputs/not_fix/acn_caltech_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
             '07_tfm_itfm_pytorch_results.json'
         ],
         'd_model': 128,
