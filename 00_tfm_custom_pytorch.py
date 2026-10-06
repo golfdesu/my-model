@@ -67,19 +67,38 @@ else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
 # ==============================================================================
-# 1. Dataset Loading & Preprocessing (JPN with Weather)
+# 1. Dataset Loading & Preprocessing (Caltech/JPN with Weather)
 # ==============================================================================
-data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
+dataset_target = os.environ.get('DATASET_TARGET', 'acn_caltech_ready_v3')
+if 'caltech' in dataset_target.lower():
+    csv_candidates = [
+        '../data_cleaned/acn_caltech_ready_v3.csv',
+        'data_cleaned/acn_caltech_ready_v3.csv',
+        '../../data_cleaned/acn_caltech_ready_v3.csv',
+        'acn_caltech_ready_v3.csv',
+        '../data_cleaned/acn_caltech_ready2.csv',
+        'data_cleaned/acn_caltech_ready2.csv'
+    ]
+    dataset_name_tag = 'acn_caltech_v3'
+else:
+    csv_candidates = [
+        '../data_cleaned/acn_jpl_ready_v3.csv',
+        'data_cleaned/acn_jpl_ready_v3.csv',
+        '../../data_cleaned/acn_jpl_ready_v3.csv',
+        'acn_jpl_ready_v3.csv',
+        '../data_cleaned/acn_jpn_ready_v3.csv',
+        'data_cleaned/acn_jpn_ready_v3.csv'
+    ]
+    dataset_name_tag = 'acn_jpl'
+
+data_path = None
+for cand in csv_candidates:
+    if os.path.exists(cand):
+        data_path = cand
+        break
+
+if data_path is None:
+    raise FileNotFoundError(f"Could not locate dataset for target {dataset_target}")
 
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -419,24 +438,24 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 32    # Selected by JPN V3 HPO (Trial 19 - Locked Capacity Parity with Baselines)
+BATCH_SIZE = 32    # Selected by Caltech V3 HPO (Trial 9 - Locked Capacity Parity with Baselines)
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on JPN V3: Trial 19)
+# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on Caltech V3: Trial 9)
 D_MODEL             = 128
 NUM_HEADS           = 8
 D_FF                = 512
 NUM_LAYERS          = 2
-DROPOUT_RATE        = 0.1
-LEARNING_RATE       = 0.0001493931976721778
-WEIGHT_DECAY        = 8.492935741365948e-06
+DROPOUT_RATE        = 0.15
+LEARNING_RATE       = 0.002299958642814372
+WEIGHT_DECAY        = 1.8427970406864558e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
-ATTN_ORTHOGONAL_REG       = 0.00010565582330168113
-INTER_HEAD_ORTHOGONAL_REG = 2.7131713354741595e-05
-EEO_ORTHOGONAL_REG        = 4.344012725210976e-06
+ATTN_ORTHOGONAL_REG       = 6.0803901902966035e-06
+INTER_HEAD_ORTHOGONAL_REG = 1.3667272915456224e-06
+EEO_ORTHOGONAL_REG        = 9.462175356461487e-06
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
@@ -459,7 +478,7 @@ results_data = {
     "eeo_orthogonal_reg_strength": EEO_ORTHOGONAL_REG,
     "num_endo_features": len(endo_indices),
     "num_exo_features": len(exo_indices),
-    "dataset": "acn_jpl_ready_v3",
+    "dataset": dataset_name_tag,
     "with_weather": True,
     "seeds": {},
     "summary": {}
