@@ -649,17 +649,21 @@ def compile_ablation_report(out_dir, dataset_cfg):
     print(f"{'='*75}")
 
     # 1. Load V1 from existing results
-    v1_candidates = [
+    v1_candidates = dataset_cfg.get('v1_candidates', []) + [
         os.path.join(out_dir, 'v1_full_results.json'),
         os.path.join(out_dir, '00_tfm_custom_pytorch_results.json')
-    ] + dataset_cfg.get('v1_candidates', [])
+    ]
 
+    target_kw = 'caltech' if 'caltech' in dataset_cfg['name_tag'].lower() else 'jp'
     v1_data = None
     for cand in v1_candidates:
         if os.path.exists(cand):
             try:
                 with open(cand, 'r', encoding='utf-8') as f:
                     d = json.load(f)
+                    cand_ds = str(d.get('dataset', '')).lower()
+                    if cand_ds and target_kw not in cand_ds:
+                        continue
                     if 'summary' in d and 'mae' in d['summary']:
                         v1_data = d
                         print(f"Loaded V1 (Full Model 00) from {cand}")
@@ -694,15 +698,18 @@ def compile_ablation_report(out_dir, dataset_cfg):
             print(f"Notice: {var_key}_results.json not found yet in {out_dir}")
 
     # Check for Model 07 reference
-    m07_candidates = [
+    m07_candidates = dataset_cfg.get('m07_candidates', []) + [
         os.path.join(out_dir, '07_tfm_itfm_pytorch_results.json')
-    ] + dataset_cfg.get('m07_candidates', [])
+    ]
 
     for cand in m07_candidates:
         if os.path.exists(cand):
             try:
                 with open(cand, 'r', encoding='utf-8') as f:
                     d = json.load(f)
+                    cand_ds = str(d.get('dataset', '')).lower()
+                    if cand_ds and target_kw not in cand_ds:
+                        continue
                     if 'summary' in d and 'mae' in d['summary']:
                         m07_summary = dict(d['summary'])
                         if 'mae_peak' not in m07_summary and 'seeds' in d:
