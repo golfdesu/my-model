@@ -236,18 +236,18 @@ def create_windowed_tensors(X_data, y_data, lookback, horizon):
 
 
 def compute_metrics(actual, predicted, peak_threshold):
-    mae  = mean_absolute_error(actual, predicted)
-    rmse = np.sqrt(mean_squared_error(actual, predicted))
-    r2   = r2_score(actual, predicted)
-    wape = (np.sum(np.abs(actual - predicted)) / np.sum(actual)) * 100
+    mae  = float(mean_absolute_error(actual, predicted))
+    rmse = float(np.sqrt(mean_squared_error(actual, predicted)))
+    r2   = float(r2_score(actual, predicted))
+    wape = float((np.sum(np.abs(actual - predicted)) / np.sum(actual)) * 100)
     non_zero = actual > 0
-    mape = np.mean(np.abs((actual[non_zero] - predicted[non_zero]) / actual[non_zero])) * 100 if non_zero.any() else np.nan
+    mape = float(np.mean(np.abs((actual[non_zero] - predicted[non_zero]) / actual[non_zero])) * 100) if non_zero.any() else None
     peak = actual >= peak_threshold
     if peak.any():
-        mae_peak  = mean_absolute_error(actual[peak], predicted[peak])
-        wape_peak = (np.sum(np.abs(actual[peak] - predicted[peak])) / np.sum(actual[peak])) * 100
+        mae_peak  = float(mean_absolute_error(actual[peak], predicted[peak]))
+        wape_peak = float((np.sum(np.abs(actual[peak] - predicted[peak])) / np.sum(actual[peak])) * 100)
     else:
-        mae_peak, wape_peak = np.nan, np.nan
+        mae_peak, wape_peak = None, None
 
     bias = float(np.mean(predicted - actual))
     negative_pct = float(np.mean(predicted < 0) * 100)
@@ -541,8 +541,9 @@ def run_single_variant(var_key, data_bundle, out_dir):
     # Summarize variant
     summary_dict = {}
     for k in ['mae', 'rmse', 'r2', 'wape', 'mae_peak', 'bias', 'training_time_seconds']:
-        vals = [m[k] for m in all_seed_metrics if k in m and not np.isnan(m[k])]
-        summary_dict[k] = {'mean': float(np.mean(vals)), 'std': float(np.std(vals))}
+        vals = [float(m[k]) for m in all_seed_metrics if k in m and m[k] is not None and not np.isnan(m[k])]
+        if vals:
+            summary_dict[k] = {'mean': float(np.mean(vals)), 'std': float(np.std(vals))}
 
     results_data['summary'] = summary_dict
 
@@ -550,7 +551,7 @@ def run_single_variant(var_key, data_bundle, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     out_json = os.path.join(out_dir, f"{var_key}_results.json")
     with open(out_json, 'w', encoding='utf-8') as f:
-        json.dump(results_data, f, indent=2)
+        json.dump(results_data, f, indent=2, default=lambda o: float(o) if isinstance(o, (np.floating, np.integer)) else str(o))
 
     all_predictions['y_true'] = y_true_kw.astype(np.float32)
     np.savez_compressed(os.path.join(out_dir, f"{var_key}_predictions.npz"), **all_predictions)
