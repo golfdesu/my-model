@@ -2,7 +2,7 @@
 # coding: utf-8
 
 """
-2x2 Factorial Ablation Study Engine for Model 00 on Caltech V3
+2x2 Factorial Ablation Study Engine for Model 00 (NASA JPL V3 & Caltech V3)
 Investigates the individual and interaction effects of:
   1. EEO (Disentangled Endogenous / Exogenous Variate Projections)
   2. Orthogonal Regularization (Intra-Matrix Isometry + Inter-Head Diversity + EEO Cross-Subspace)
@@ -256,17 +256,86 @@ def compute_metrics(actual, predicted, peak_threshold):
 
 
 # ==============================================================================
-# Dataset Loading
+# Dataset & Hyperparameter Configurations
 # ==============================================================================
-def load_dataset():
-    csv_candidates = [
-        '../data_cleaned/acn_caltech_ready_v3.csv',
-        'data_cleaned/acn_caltech_ready_v3.csv',
-        '../../data_cleaned/acn_caltech_ready_v3.csv',
-        'acn_caltech_ready_v3.csv',
-        '../data_cleaned/acn_caltech_ready2.csv',
-        'data_cleaned/acn_caltech_ready2.csv'
-    ]
+SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
+LOOKBACK = 96
+HORIZON = 48
+
+DATASET_CONFIGS = {
+    'jpl': {
+        'name_tag': 'acn_jpl_v3',
+        'display_name': 'NASA JPL V3',
+        'csv_candidates': [
+            '../data_cleaned/acn_jpl_ready_v3.csv',
+            'data_cleaned/acn_jpl_ready_v3.csv',
+            '../../data_cleaned/acn_jpl_ready_v3.csv',
+            'acn_jpl_ready_v3.csv',
+            '../data_cleaned/acn_jpn_ready_v3.csv',
+            'data_cleaned/acn_jpn_ready_v3.csv'
+        ],
+        'v1_candidates': [
+            'outputs/acn_jpn_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
+            'outputs/acn_jpl_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
+            '00_tfm_custom_pytorch_results.json'
+        ],
+        'm07_candidates': [
+            'outputs/acn_jpn_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
+            'outputs/acn_jpl_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
+            '07_tfm_itfm_pytorch_results.json'
+        ],
+        'd_model': 128,
+        'num_heads': 8,
+        'd_ff': 512,
+        'num_layers': 2,
+        'dropout_rate': 0.1,
+        'learning_rate': 0.0001493931976721778,
+        'weight_decay': 8.492935741365948e-06,
+        'batch_size': 32,
+        'patience': 15,
+        'lr_scheduler_patience': 5,
+        'attn_reg_default': 0.00010565582330168113,
+        'inter_reg_default': 2.7131713354741595e-05,
+        'eeo_reg_default': 4.344012725210976e-06
+    },
+    'caltech': {
+        'name_tag': 'acn_caltech_v3',
+        'display_name': 'Caltech V3',
+        'csv_candidates': [
+            '../data_cleaned/acn_caltech_ready_v3.csv',
+            'data_cleaned/acn_caltech_ready_v3.csv',
+            '../../data_cleaned/acn_caltech_ready_v3.csv',
+            'acn_caltech_ready_v3.csv',
+            '../data_cleaned/acn_caltech_ready2.csv',
+            'data_cleaned/acn_caltech_ready2.csv'
+        ],
+        'v1_candidates': [
+            'outputs/acn_caltech_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json',
+            '00_tfm_custom_pytorch_results.json'
+        ],
+        'm07_candidates': [
+            'outputs/acn_caltech_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json',
+            '07_tfm_itfm_pytorch_results.json'
+        ],
+        'd_model': 128,
+        'num_heads': 8,
+        'd_ff': 512,
+        'num_layers': 2,
+        'dropout_rate': 0.2,
+        'learning_rate': 0.0004299749266334553,
+        'weight_decay': 2.000844389639091e-06,
+        'batch_size': 32,
+        'patience': 15,
+        'lr_scheduler_patience': 5,
+        'attn_reg_default': 0.0031134843833110284,
+        'inter_reg_default': 3.099246938221801e-05,
+        'eeo_reg_default': 1.2016244471675806e-05
+    }
+}
+
+
+def load_dataset(dataset_cfg):
+    csv_candidates = dataset_cfg['csv_candidates']
     data_path = None
     for cand in csv_candidates:
         if os.path.exists(cand):
@@ -274,7 +343,7 @@ def load_dataset():
             break
 
     if data_path is None:
-        raise FileNotFoundError("Could not locate acn_caltech_ready_v3.csv dataset.")
+        raise FileNotFoundError(f"Could not locate dataset for {dataset_cfg['display_name']} from candidates: {csv_candidates}")
 
     df = pd.read_csv(data_path)
     df['connectionTime'] = pd.to_datetime(df['connectionTime'])
@@ -319,6 +388,11 @@ def load_dataset():
 
     peak_threshold = float(np.percentile(df['kWhDelivered'].iloc[:train_len], 80))
 
+    print(f"Loaded {dataset_cfg['display_name']} from: {data_path}")
+    print(f"  Rows: {len(df)} (Train: {train_len}, Val: {val_len}, Test: {len(df) - train_len - val_len})")
+    print(f"  Variate Tokens: {X_train_scaled.shape[1]} ({len(endo_indices)} Endogenous, {len(exo_indices)} Exogenous)")
+    print(f"  Peak Load Threshold: {peak_threshold:.4f} kW")
+
     return {
         'X_train_scaled': X_train_scaled, 'y_train_scaled': y_train_scaled,
         'X_val_scaled': X_val_scaled,     'y_val_scaled': y_val_scaled,
@@ -330,69 +404,56 @@ def load_dataset():
     }
 
 
-# ==============================================================================
-# Variant Runner
-# ==============================================================================
-SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
-LOOKBACK = 96
-HORIZON = 48
-BATCH_SIZE = 32
+def get_variant_configs(dataset_cfg):
+    attn_reg = dataset_cfg['attn_reg_default']
+    inter_reg = dataset_cfg['inter_reg_default']
+    eeo_reg = dataset_cfg['eeo_reg_default']
 
-# Hyperparameters (Trial 15 Parsimonious on Caltech V3)
-D_MODEL             = 128
-NUM_HEADS           = 8
-D_FF                = 512
-NUM_LAYERS          = 2
-DROPOUT_RATE        = 0.2
-LEARNING_RATE       = 0.0004299749266334553
-WEIGHT_DECAY        = 2.000844389639091e-06
-PATIENCE            = 15
-LR_SCHEDULER_PATIENCE = 5
-
-ATTN_ORTHOGONAL_REG_DEFAULT       = 0.0031134843833110284
-INTER_HEAD_ORTHOGONAL_REG_DEFAULT = 3.099246938221801e-05
-EEO_ORTHOGONAL_REG_DEFAULT        = 1.2016244471675806e-05
-
-VARIANT_CONFIGS = {
-    'v1_full': {
-        'name': 'V1: Full Model 00 (EEO + Ortho)',
-        'use_eeo': True,
-        'attn_reg': ATTN_ORTHOGONAL_REG_DEFAULT,
-        'inter_reg': INTER_HEAD_ORTHOGONAL_REG_DEFAULT,
-        'eeo_reg': EEO_ORTHOGONAL_REG_DEFAULT
-    },
-    'v2_no_eeo': {
-        'name': 'V2: Ablate EEO (No EEO, Ortho ON)',
-        'use_eeo': False,
-        'attn_reg': ATTN_ORTHOGONAL_REG_DEFAULT,
-        'inter_reg': INTER_HEAD_ORTHOGONAL_REG_DEFAULT,
-        'eeo_reg': 0.0
-    },
-    'v3_no_ortho': {
-        'name': 'V3: Ablate Ortho (EEO ON, No Ortho)',
-        'use_eeo': True,
-        'attn_reg': 0.0,
-        'inter_reg': 0.0,
-        'eeo_reg': 0.0
-    },
-    'v4_backbone': {
-        'name': 'V4: Backbone Only (No EEO, No Ortho)',
-        'use_eeo': False,
-        'attn_reg': 0.0,
-        'inter_reg': 0.0,
-        'eeo_reg': 0.0
+    return {
+        'v1_full': {
+            'name': 'V1: Full Model 00 (EEO + Ortho)',
+            'use_eeo': True,
+            'attn_reg': attn_reg,
+            'inter_reg': inter_reg,
+            'eeo_reg': eeo_reg
+        },
+        'v2_no_eeo': {
+            'name': 'V2: Ablate EEO (No EEO, Ortho ON)',
+            'use_eeo': False,
+            'attn_reg': attn_reg,
+            'inter_reg': inter_reg,
+            'eeo_reg': 0.0
+        },
+        'v3_no_ortho': {
+            'name': 'V3: Ablate Ortho (EEO ON, No Ortho)',
+            'use_eeo': True,
+            'attn_reg': 0.0,
+            'inter_reg': 0.0,
+            'eeo_reg': 0.0
+        },
+        'v4_backbone': {
+            'name': 'V4: Backbone Only (No EEO, No Ortho)',
+            'use_eeo': False,
+            'attn_reg': 0.0,
+            'inter_reg': 0.0,
+            'eeo_reg': 0.0
+        }
     }
-}
 
 
-def run_single_variant(var_key, data_bundle, out_dir):
-    cfg = VARIANT_CONFIGS[var_key]
+def run_single_variant(var_key, data_bundle, out_dir, dataset_cfg):
+    variant_configs = get_variant_configs(dataset_cfg)
+    cfg = variant_configs[var_key]
     print(f"\n{'='*75}")
     print(f">>> STARTING ABLATION VARIANT: {cfg['name']}")
+    print(f"    Target Dataset        : {dataset_cfg['display_name']}")
     print(f"    EEO Disentangled Proj : {cfg['use_eeo']}")
     print(f"    Attn Ortho Reg        : {cfg['attn_reg']:.6e}")
     print(f"    Inter-Head Ortho Reg  : {cfg['inter_reg']:.6e}")
     print(f"    EEO Ortho Reg         : {cfg['eeo_reg']:.6e}")
+    print(f"    Learning Rate         : {dataset_cfg['learning_rate']:.6e}")
+    print(f"    Dropout Rate          : {dataset_cfg['dropout_rate']}")
+    print(f"    Batch Size            : {dataset_cfg['batch_size']}")
     print(f"{'='*75}")
 
     X_train_scaled = data_bundle['X_train_scaled']
@@ -422,19 +483,35 @@ def run_single_variant(var_key, data_bundle, out_dir):
     results_data = {
         'variant_key': var_key,
         'variant_name': cfg['name'],
-        'dataset': 'acn_caltech_v3',
+        'dataset': dataset_cfg['name_tag'],
         'config': {
             'use_eeo': cfg['use_eeo'],
             'attn_reg': cfg['attn_reg'],
             'inter_reg': cfg['inter_reg'],
             'eeo_reg': cfg['eeo_reg'],
-            'learning_rate': LEARNING_RATE,
-            'dropout_rate': DROPOUT_RATE,
-            'batch_size': BATCH_SIZE
+            'learning_rate': dataset_cfg['learning_rate'],
+            'dropout_rate': dataset_cfg['dropout_rate'],
+            'batch_size': dataset_cfg['batch_size'],
+            'weight_decay': dataset_cfg['weight_decay'],
+            'd_model': dataset_cfg['d_model'],
+            'num_heads': dataset_cfg['num_heads'],
+            'd_ff': dataset_cfg['d_ff'],
+            'num_layers': dataset_cfg['num_layers']
         },
         'seeds': {},
         'summary': {}
     }
+
+    batch_size = dataset_cfg['batch_size']
+    learning_rate = dataset_cfg['learning_rate']
+    weight_decay = dataset_cfg['weight_decay']
+    d_model = dataset_cfg['d_model']
+    num_heads = dataset_cfg['num_heads']
+    d_ff = dataset_cfg['d_ff']
+    num_layers = dataset_cfg['num_layers']
+    dropout_rate = dataset_cfg['dropout_rate']
+    patience = dataset_cfg['patience']
+    lr_scheduler_patience = dataset_cfg['lr_scheduler_patience']
 
     t_variant_start = time.time()
     for seed_idx, seed in enumerate(SEEDS, 1):
@@ -446,23 +523,22 @@ def run_single_variant(var_key, data_bundle, out_dir):
         torch.cuda.manual_seed_all(seed)
         np.random.seed(seed)
 
-        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  drop_last=True, pin_memory=(device.type == 'cuda'))
-        val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
-        test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,  drop_last=True, pin_memory=(device.type == 'cuda'))
+        val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
+        test_loader  = DataLoader(test_dataset,  batch_size=batch_size, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
         model = InvertedCustomTransformer(
             lookback=LOOKBACK, num_variates=num_variates, horizon=HORIZON,
-            target_ch_idx=target_idx, d_model=D_MODEL, num_heads=NUM_HEADS,
-            d_ff=D_FF, num_layers=NUM_LAYERS, dropout_rate=DROPOUT_RATE,
+            target_ch_idx=target_idx, d_model=d_model, num_heads=num_heads,
+            d_ff=d_ff, num_layers=num_layers, dropout_rate=dropout_rate,
             endo_indices=endo_idx, exo_indices=exo_idx
         ).to(device)
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=LR_SCHEDULER_PATIENCE, min_lr=1e-5)
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=lr_scheduler_patience, min_lr=1e-5)
 
         epochs = 200
-        patience = PATIENCE
         best_val_loss = float('inf')
         patience_counter = 0
         best_weights = None
@@ -567,17 +643,17 @@ def run_single_variant(var_key, data_bundle, out_dir):
 # ==============================================================================
 # Master Aggregation & Factorial Analysis
 # ==============================================================================
-def compile_ablation_report(out_dir):
+def compile_ablation_report(out_dir, dataset_cfg):
     print(f"\n{'='*75}")
-    print(">>> COMPILING 2x2 FACTORIAL ABLATION REPORT")
+    print(f">>> COMPILING 2x2 FACTORIAL ABLATION REPORT FOR {dataset_cfg['display_name'].upper()}")
     print(f"{'='*75}")
 
     # 1. Load V1 from existing results
     v1_candidates = [
         os.path.join(out_dir, 'v1_full_results.json'),
-        '00_tfm_custom_pytorch_results.json',
-        'outputs/acn_caltech_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json'
-    ]
+        os.path.join(out_dir, '00_tfm_custom_pytorch_results.json')
+    ] + dataset_cfg.get('v1_candidates', [])
+
     v1_data = None
     for cand in v1_candidates:
         if os.path.exists(cand):
@@ -593,7 +669,16 @@ def compile_ablation_report(out_dir):
 
     variants = {}
     if v1_data is not None:
-        variants['V1 (Full: EEO + Ortho)'] = v1_data['summary']
+        v1_summary = dict(v1_data['summary'])
+        if 'mae_peak' not in v1_summary and 'seeds' in v1_data:
+            peaks = [
+                s['overall_metrics']['mae_peak']
+                for s in v1_data['seeds'].values()
+                if isinstance(s, dict) and 'overall_metrics' in s and 'mae_peak' in s['overall_metrics'] and s['overall_metrics']['mae_peak'] is not None
+            ]
+            if peaks:
+                v1_summary['mae_peak'] = {'mean': float(np.mean(peaks)), 'std': float(np.std(peaks))}
+        variants['V1 (Full: EEO + Ortho)'] = v1_summary
 
     for var_key, var_label in [
         ('v2_no_eeo', 'V2 (Ablate EEO: No EEO, Ortho ON)'),
@@ -610,23 +695,33 @@ def compile_ablation_report(out_dir):
 
     # Check for Model 07 reference
     m07_candidates = [
-        '07_tfm_itfm_pytorch_results.json',
-        'outputs/acn_caltech_v3/07_tfm_itfm_pytorch/07_tfm_itfm_pytorch_results.json'
-    ]
+        os.path.join(out_dir, '07_tfm_itfm_pytorch_results.json')
+    ] + dataset_cfg.get('m07_candidates', [])
+
     for cand in m07_candidates:
         if os.path.exists(cand):
             try:
                 with open(cand, 'r', encoding='utf-8') as f:
                     d = json.load(f)
                     if 'summary' in d and 'mae' in d['summary']:
-                        variants['Ref: Model 07 (iTransformer)'] = d['summary']
+                        m07_summary = dict(d['summary'])
+                        if 'mae_peak' not in m07_summary and 'seeds' in d:
+                            peaks = [
+                                s['overall_metrics']['mae_peak']
+                                for s in d['seeds'].values()
+                                if isinstance(s, dict) and 'overall_metrics' in s and 'mae_peak' in s['overall_metrics'] and s['overall_metrics']['mae_peak'] is not None
+                            ]
+                            if peaks:
+                                m07_summary['mae_peak'] = {'mean': float(np.mean(peaks)), 'std': float(np.std(peaks))}
+                        variants['Ref: Model 07 (iTransformer)'] = m07_summary
+                        print(f"Loaded Ref Model 07 from {cand}")
                         break
             except Exception:
                 pass
 
     # Markdown Table Generation
     lines = []
-    lines.append("# Model 00 Ablation Study: EEO vs Orthogonal Regularization (Caltech V3)")
+    lines.append(f"# Model 00 Ablation Study: EEO vs Orthogonal Regularization ({dataset_cfg['display_name']})")
     lines.append("")
     lines.append("## 1. 2x2 Factorial Performance Matrix (10 Seeds Mean ± Std)")
     lines.append("")
@@ -698,13 +793,19 @@ def compile_ablation_report(out_dir):
 # CLI Entrypoint
 # ==============================================================================
 def main():
+    default_dataset = 'caltech' if 'caltech' in os.environ.get('DATASET_TARGET', 'acn_jpl_ready_v3').lower() else 'jpl'
+
     parser = argparse.ArgumentParser(description="Run Ablation Study for Model 00 (EEO vs Ortho)")
+    parser.add_argument('--dataset', default=default_dataset, choices=['jpl', 'caltech'],
+                        help=f"Target dataset configuration (default: {default_dataset})")
     parser.add_argument('--variants', nargs='+', default=['v2_no_eeo', 'v3_no_ortho', 'v4_backbone'],
                         choices=['v1_full', 'v2_no_eeo', 'v3_no_ortho', 'v4_backbone', 'all_missing', 'all'],
                         help="Which variants to execute (default: v2, v3, v4; skipping v1 because results already exist)")
     parser.add_argument('--output-dir', default='.',
                         help="Output directory for ablation results (default: root .)")
     args = parser.parse_args()
+
+    dataset_cfg = DATASET_CONFIGS[args.dataset]
 
     selected_variants = args.variants
     if 'all_missing' in selected_variants:
@@ -713,12 +814,12 @@ def main():
         selected_variants = ['v1_full', 'v2_no_eeo', 'v3_no_ortho', 'v4_backbone']
 
     os.makedirs(args.output_dir, exist_ok=True)
-    data_bundle = load_dataset()
+    data_bundle = load_dataset(dataset_cfg)
 
     for v in selected_variants:
-        run_single_variant(v, data_bundle, args.output_dir)
+        run_single_variant(v, data_bundle, args.output_dir, dataset_cfg)
 
-    compile_ablation_report(args.output_dir)
+    compile_ablation_report(args.output_dir, dataset_cfg)
 
 
 if __name__ == '__main__':
