@@ -4,7 +4,7 @@
 # Investigates: EEO vs Orthogonal Regularization for Model 00 (Trial 15 Params)
 # Target Hardware: compute4 node (NVIDIA H100 80GB HBM3) on 'gpu-h100'
 # Execution Mode : 10-Seed Multi-Seed Evaluation for V2, V3, and V4 (V1 pre-computed)
-# Output Target  : outputs/ablation_caltech_v3/
+# Output Target  : Root directory (.)
 # ==============================================================================
 #SBATCH --job-name=ablation_00_caltech_h100
 #SBATCH --output=logs/%x_%j.out
@@ -17,7 +17,7 @@
 #SBATCH --mem=64G
 #SBATCH --time=01:30:00
 
-mkdir -p logs outputs/ablation_caltech_v3
+mkdir -p logs
 
 export DATASET_TARGET="acn_caltech_ready_v3"
 
@@ -30,7 +30,7 @@ echo "Start Time          : $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Working Directory   : $(pwd)"
 echo "Target Task         : Model 00 2x2 Factorial Ablation Study (V2, V3, V4)"
 echo "Dataset Target      : ACN Caltech V3 (${DATASET_TARGET})"
-echo "Output Directory    : outputs/ablation_caltech_v3/"
+echo "Output Directory    : $(pwd) (Root)"
 echo "Unified Log File    : logs/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out"
 echo "=============================================================================="
 
@@ -82,24 +82,15 @@ export OMP_NUM_THREADS=16
 
 python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA Available: {torch.cuda.is_available()}'); print(f'Device 0: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'No GPU detected')"
 
-# 4. Copy V1 (Full Model 00) Results into outputs/ablation_caltech_v3/
-if [ -f "00_tfm_custom_pytorch_results.json" ]; then
-    cp -v "00_tfm_custom_pytorch_results.json" "outputs/ablation_caltech_v3/v1_full_results.json" 2>/dev/null || true
-    echo "Copied root 00_tfm_custom_pytorch_results.json -> outputs/ablation_caltech_v3/v1_full_results.json"
-elif [ -f "outputs/acn_caltech_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json" ]; then
-    cp -v "outputs/acn_caltech_v3/00_tfm_custom_pytorch/00_tfm_custom_pytorch_results.json" "outputs/ablation_caltech_v3/v1_full_results.json" 2>/dev/null || true
-    echo "Copied outputs/acn_caltech_v3 V1 results -> outputs/ablation_caltech_v3/v1_full_results.json"
-fi
-
 TOTAL_START=$(date +%s)
 
-# 5. Execute Ablation Engine for V2, V3, V4
+# 4. Execute Ablation Engine for V2, V3, V4 (saving directly to root .)
 echo ""
 echo "=============================================================================="
 echo ">>> [STARTED] Running Ablation Engine (V2, V3, V4 across 10 Seeds each)..."
 echo "=============================================================================="
 
-python -u 00_ablation_eeo_ortho_pytorch.py --variants v2_no_eeo v3_no_ortho v4_backbone --output-dir outputs/ablation_caltech_v3
+python -u 00_ablation_eeo_ortho_pytorch.py --variants v2_no_eeo v3_no_ortho v4_backbone --output-dir .
 
 TOTAL_END=$(date +%s)
 TOTAL_DIFF=$((TOTAL_END - TOTAL_START))

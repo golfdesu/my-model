@@ -702,8 +702,8 @@ def main():
     parser.add_argument('--variants', nargs='+', default=['v2_no_eeo', 'v3_no_ortho', 'v4_backbone'],
                         choices=['v1_full', 'v2_no_eeo', 'v3_no_ortho', 'v4_backbone', 'all_missing', 'all'],
                         help="Which variants to execute (default: v2, v3, v4; skipping v1 because results already exist)")
-    parser.add_argument('--output-dir', default='outputs/ablation_caltech_v3',
-                        help="Output directory for ablation results")
+    parser.add_argument('--output-dir', default='.',
+                        help="Output directory for ablation results (default: root .)")
     args = parser.parse_args()
 
     selected_variants = args.variants
