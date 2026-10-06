@@ -835,14 +835,7 @@ results_data["config"] = {
 results_data["summary"] = summary_dict
 with open(output_json_filename, "w", encoding="utf-8") as f:
     json.dump(results_data, f, indent=2)
-print(f"Successfully saved final results to {output_json_filename}")
-
-# Automatically archive artifacts to outputs/acn_jpn/00_tfm_custom_pytorch
-import shutil
-output_target_dir = os.path.join("outputs", "acn_jpn", "00_tfm_custom_pytorch")
-os.makedirs(output_target_dir, exist_ok=True)
-for fname in [output_json_filename, "00_tfm_custom_pytorch_best.pt", "00_tfm_custom_pytorch_predictions.npz"]:
-    if os.path.exists(fname):
-        shutil.copy(fname, os.path.join(output_target_dir, fname))
-print(f"Successfully archived all artifacts to {output_target_dir}/")
+with open(output_json_dataset_filename, "w", encoding="utf-8") as f:
+    json.dump(results_data, f, indent=2)
+print(f"Successfully saved final results to {output_json_filename} & {output_json_dataset_filename}")
 print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
