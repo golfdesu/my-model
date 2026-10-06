@@ -438,24 +438,24 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ==============================================================================
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON  = 48      # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 32    # Selected by Caltech V3 HPO (Trial 9 - Locked Capacity Parity with Baselines)
+BATCH_SIZE = 32    # Selected by Caltech V3 HPO (Trial 15 - Parsimonious Robust Parity)
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
-# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on Caltech V3: Trial 9)
+# Hyperparameters (Selected by 50-Trial Optuna TPE Full HPO on Caltech V3: Trial 15 Parsimonious)
 D_MODEL             = 128
 NUM_HEADS           = 8
 D_FF                = 512
 NUM_LAYERS          = 2
-DROPOUT_RATE        = 0.15
-LEARNING_RATE       = 0.002299958642814372
-WEIGHT_DECAY        = 1.8427970406864558e-06
+DROPOUT_RATE        = 0.2
+LEARNING_RATE       = 0.0004299749266334553
+WEIGHT_DECAY        = 2.000844389639091e-06
 PATIENCE            = 15
 LR_SCHEDULER_PATIENCE = 5
 
 # Custom Regularization Hyperparameters (Intra-Matrix + Inter-Head Diversity + EEO Cross-Subspace)
-ATTN_ORTHOGONAL_REG       = 6.0803901902966035e-06
-INTER_HEAD_ORTHOGONAL_REG = 1.3667272915456224e-06
-EEO_ORTHOGONAL_REG        = 9.462175356461487e-06
+ATTN_ORTHOGONAL_REG       = 0.0031134843833110284
+INTER_HEAD_ORTHOGONAL_REG = 3.099246938221801e-05
+EEO_ORTHOGONAL_REG        = 1.2016244471675806e-05
 
 output_json_filename = "00_tfm_custom_pytorch_results.json"
 results_data = {
