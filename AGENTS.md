@@ -27,6 +27,7 @@ This repository is the dedicated Multi-Seed Production Benchmark and Publication
 | ✅ XGBoost | `tree_method='hist'`, `device='cuda'` — ใช้ได้ |
 | ✅ SLURM partition | `--partition=gpu-h100` เท่านั้นสำหรับ compute4 |
 | ✅ TF32 flags | ต้องเปิด `allow_tf32=True` + `cudnn.benchmark=True` |
+| ❌ Auto-Archiving / Subfolders | ห้ามสร้าง subfolder (`best_params/`, `outputs/`) ตอนรัน HPO/Train เด็ดขาด ต้องเซฟลง root (`.`) เท่านั้น ค่อยจัดเก็บตอน git pull กลับมาประเมินผล local |
 
 ### CLI ที่ใช้บ่อย
 ```bash
@@ -187,6 +188,14 @@ Every agent must strictly maintain complete compliance with these scientific inv
 - **Model 00 (Proposed Custom Transformer)**: The **ONLY** model under active proposal and architectural invention (Thesis Contribution). It incorporates Attention Orthogonal Regularization ($\lambda_{\text{ortho}}$) and thesis-specific inductive biases.
 - **Models 01 through 31 (All Baselines)**: Must strictly match their canonical published research papers **100%** (Vaswani 2017, Informer, Autoformer, PatchTST, iTransformer, TimesNet, LSTM, GRU, DLinear, NLinear, S-Mamba, PowerMamba, TimeMachine, S4D, ModernTCN, etc.).
 - **NO FOREIGN ARTIFACTS IN BASELINES**: Baselines MUST NOT contain ad-hoc foreign layers (e.g., `GaussianNoise` / input jittering), unofficial structural shortcuts, or artificial feature dropping. All baselines must be adapted faithfully and fairly to the EV load sequence geometry ($L=96, H=48, 28$ features) following their canonical literature specifications without unvetted modifications.
+
+### 3.2 Strict Root-Level Artifact Invariant (NON-NEGOTIABLE)
+- **Execution Phase (HPC & Local Training / HPO)**:
+  - STRICTLY FORBIDDEN to create subdirectories (e.g. `best_params/`, `outputs/`, `artifacts/`) or write auto-archiving code inside training or HPO scripts.
+  - All run outputs (`*_best_params.json`, `*_results.json`, `*.pt`, `*.npz`) MUST be saved directly to the repository root directory (`.`).
+  - This guarantees clean, immediate inspection via `ls` on HPC clusters and straightforward Git tracking.
+- **Evaluation & Archiving Phase (Post-Run Only)**:
+  - Archiving and organizing artifacts into structured directories (`outputs/<dataset>/<model_name>/` or `best_params/<dataset>/`) is performed EXCLUSIVELY during local post-processing after pulling results via Git. No training or HPO script may perform this automatically during execution.
 
 ---
 
