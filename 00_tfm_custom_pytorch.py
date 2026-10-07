@@ -504,7 +504,7 @@ SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 
 # Dataset-Specific Parsimonious Hyperparameters
 if 'jpl' in dataset_name_tag.lower() or 'jpn' in dataset_name_tag.lower():
-    # NASA JPL V3 (Trial 19 Parsimonious)
+    # ACN JPL V3 (Trial 19 Parsimonious)
     D_MODEL             = 128
     NUM_HEADS           = 8
     D_FF                = 512
@@ -517,7 +517,7 @@ if 'jpl' in dataset_name_tag.lower() or 'jpn' in dataset_name_tag.lower():
     ATTN_ORTHOGONAL_REG       = 0.00010565582330168113
     INTER_HEAD_ORTHOGONAL_REG = 2.7131713354741595e-05
     EEO_ORTHOGONAL_REG        = 4.344012725210976e-06
-    print("Loaded Parsimonious Parameters for NASA JPL V3 (Trial 19)")
+    print("Loaded Parsimonious Parameters for ACN JPL V3 (Trial 19)")
 else:
     # Caltech V3 (Trial 15 Parsimonious)
     D_MODEL             = 128

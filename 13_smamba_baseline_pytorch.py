@@ -57,19 +57,39 @@ if device.type == 'cuda':
 else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
-# Load and clean dataset (Local path auto-detect)
-data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
+# Load and clean dataset (Dynamic Target: Caltech V3 / JPL V3)
+dataset_target = os.environ.get('DATASET_TARGET', 'acn_caltech_ready_v3')
+if 'caltech' in dataset_target.lower():
+    csv_candidates = [
+        '../data_cleaned/acn_caltech_ready_v3.csv',
+        'data_cleaned/acn_caltech_ready_v3.csv',
+        '../../data_cleaned/acn_caltech_ready_v3.csv',
+        'acn_caltech_ready_v3.csv',
+        '../data_cleaned/acn_caltech_ready2.csv',
+        'data_cleaned/acn_caltech_ready2.csv'
+    ]
+    dataset_name_tag = 'acn_caltech_v3'
+else:
+    csv_candidates = [
+        '../data_cleaned/acn_jpl_ready_v3.csv',
+        'data_cleaned/acn_jpl_ready_v3.csv',
+        '../../data_cleaned/acn_jpl_ready_v3.csv',
+        'acn_jpl_ready_v3.csv',
+        '../data_cleaned/acn_jpn_ready_v3.csv',
+        'data_cleaned/acn_jpn_ready_v3.csv'
+    ]
+    dataset_name_tag = 'acn_jpl'
 
+data_path = None
+for cand in csv_candidates:
+    if os.path.exists(cand):
+        data_path = cand
+        break
+
+if data_path is None:
+    raise FileNotFoundError(f"Could not locate dataset for target {dataset_target}")
+
+print(f"Loading dataset from: {data_path} (Target: {dataset_name_tag})")
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
@@ -300,9 +320,37 @@ import time
 # Config Parameters
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 64
+BATCH_SIZE = 32    # Backbone capacity parity
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
-output_json_filename = "13_smamba_baseline_pytorch_results.json"
+
+# Backbone Architecture Parameters (Capacity Parity)
+D_MODEL = 128
+NUM_LAYERS = 2
+
+# Dataset-Specific Parsimonious Hyperparameters
+if 'jpl' in dataset_name_tag.lower() or 'jpn' in dataset_name_tag.lower():
+    # ACN JPL V3
+    D_STATE       = 32
+    DROPOUT_RATE  = 0.15
+    LEARNING_RATE = 0.0026158596725793554
+    WEIGHT_DECAY  = 2.8001634867182172e-06
+    print("Loaded Parsimonious Parameters for ACN JPL V3")
+else:
+    # Caltech V3
+    D_STATE       = 8
+    DROPOUT_RATE  = 0.10
+    LEARNING_RATE = 0.002284543966716573
+    WEIGHT_DECAY  = 2.4480355397297036e-06
+    print("Loaded Parsimonious Parameters for Caltech V3")
+
+MODEL_NAME = "13_smamba_baseline_pytorch"
+dataset_suffix = "_caltech" if "caltech" in dataset_name_tag.lower() else "_jpl"
+output_json_filename = f"{MODEL_NAME}_results.json"
+output_json_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_results.json"
+output_pt_filename = f"{MODEL_NAME}_best.pt"
+output_pt_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_best.pt"
+output_npz_filename = f"{MODEL_NAME}_predictions.npz"
+output_npz_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_predictions.npz"
 results_data = {
     "model_name": "13_smamba_baseline_pytorch",
     "seeds": {},
@@ -344,11 +392,11 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
     test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
-    model = SMambaModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=128, d_state=8, num_layers=2, dropout_rate=0.25, target_idx=TARGET_CH_IDX).to(device)
+    model = SMambaModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, d_model=D_MODEL, d_state=D_STATE, num_layers=NUM_LAYERS, dropout_rate=DROPOUT_RATE, target_idx=TARGET_CH_IDX).to(device)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     results_data["total_parameters"] = total_params
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.00030623490543540917, weight_decay=1.2849200489000954e-06)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
     epochs = 200
@@ -466,9 +514,10 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     if best_val_loss < best_overall_val_loss and best_model_weights is not None:
         best_overall_val_loss = best_val_loss
         best_seed_id = SEED
-        torch.save(best_model_weights, f"13_smamba_baseline_pytorch_best.pt")
+        torch.save(best_model_weights, output_pt_filename)
+        torch.save(best_model_weights, output_pt_dataset_filename)
         results_data["best_seed"] = int(SEED)
-        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> 13_smamba_baseline_pytorch_best.pt")
+        print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> {output_pt_filename} & {output_pt_dataset_filename}")
 
     results_data["seeds"][str(SEED)] = {
         "training_time_seconds": seed_duration,

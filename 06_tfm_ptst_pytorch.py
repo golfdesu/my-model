@@ -50,19 +50,39 @@ if device.type == 'cuda':
 else:
     print(f"CPU Multithreading Optimized with {num_cpus} threads")
 
-# Load and clean dataset (Local path auto-detect for VS Code)
-data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
+# Load and clean dataset (Dynamic Target: Caltech V3 / JPL V3)
+dataset_target = os.environ.get('DATASET_TARGET', 'acn_caltech_ready_v3')
+if 'caltech' in dataset_target.lower():
+    csv_candidates = [
+        '../data_cleaned/acn_caltech_ready_v3.csv',
+        'data_cleaned/acn_caltech_ready_v3.csv',
+        '../../data_cleaned/acn_caltech_ready_v3.csv',
+        'acn_caltech_ready_v3.csv',
+        '../data_cleaned/acn_caltech_ready2.csv',
+        'data_cleaned/acn_caltech_ready2.csv'
+    ]
+    dataset_name_tag = 'acn_caltech_v3'
+else:
+    csv_candidates = [
+        '../data_cleaned/acn_jpl_ready_v3.csv',
+        'data_cleaned/acn_jpl_ready_v3.csv',
+        '../../data_cleaned/acn_jpl_ready_v3.csv',
+        'acn_jpl_ready_v3.csv',
+        '../data_cleaned/acn_jpn_ready_v3.csv',
+        'data_cleaned/acn_jpn_ready_v3.csv'
+    ]
+    dataset_name_tag = 'acn_jpl'
 
+data_path = None
+for cand in csv_candidates:
+    if os.path.exists(cand):
+        data_path = cand
+        break
+
+if data_path is None:
+    raise FileNotFoundError(f"Could not locate dataset for target {dataset_target}")
+
+print(f"Loading dataset from: {data_path} (Target: {dataset_name_tag})")
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
@@ -268,9 +288,41 @@ import time
 # Config Parameters
 LOOKBACK = 96      # 48 hours history (96 * 30 min)
 HORIZON = 48       # 24 hours forecast (48 * 30 min)
-BATCH_SIZE = 128
+BATCH_SIZE = 32    # Backbone capacity parity
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
-output_json_filename = "06_tfm_ptst_pytorch_results.json"
+
+# Backbone Architecture Parameters (Capacity Parity)
+D_MODEL = 128
+NUM_HEADS = 8
+D_FF = 512
+NUM_LAYERS = 2
+
+# Dataset-Specific Parsimonious Hyperparameters
+if 'jpl' in dataset_name_tag.lower() or 'jpn' in dataset_name_tag.lower():
+    # ACN JPL V3
+    PATCH_LEN     = 8
+    STRIDE        = 8
+    DROPOUT_RATE  = 0.10
+    LEARNING_RATE = 0.00043823667236669617
+    WEIGHT_DECAY  = 1.4157787407064537e-06
+    print("Loaded Parsimonious Parameters for ACN JPL V3")
+else:
+    # Caltech V3
+    PATCH_LEN     = 8
+    STRIDE        = 8
+    DROPOUT_RATE  = 0.15
+    LEARNING_RATE = 0.00019085789548166205
+    WEIGHT_DECAY  = 2.2257539841816317e-06
+    print("Loaded Parsimonious Parameters for Caltech V3")
+
+MODEL_NAME = "06_tfm_ptst_pytorch"
+dataset_suffix = "_caltech" if "caltech" in dataset_name_tag.lower() else "_jpl"
+output_json_filename = f"{MODEL_NAME}_results.json"
+output_json_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_results.json"
+output_pt_filename = f"{MODEL_NAME}_best.pt"
+output_pt_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_best.pt"
+output_npz_filename = f"{MODEL_NAME}_predictions.npz"
+output_npz_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_predictions.npz"
 results_data = {
     "model_name": "06_tfm_ptst_pytorch",
     "seeds": {},
@@ -315,12 +367,12 @@ def run_benchmark():
         test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, pin_memory=(device.type == 'cuda'))
 
         # Build Model
-        model = PatchTSTModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, patch_len=16, stride=4, d_model=128, num_heads=4, d_ff=256, num_layers=3, dropout_rate=0.1).to(device)
+        model = PatchTSTModel(lookback=LOOKBACK, num_features=X_train_scaled.shape[1], horizon=HORIZON, patch_len=PATCH_LEN, stride=STRIDE, d_model=D_MODEL, num_heads=NUM_HEADS, d_ff=D_FF, num_layers=NUM_LAYERS, dropout_rate=DROPOUT_RATE).to(device)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         results_data["total_parameters"] = total_params
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.00022996848479451754, weight_decay=1.5518235551691295e-06)
+        optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
 
         # Training Loop with Early Stopping & Single Outer tqdm Progress Bar (%)
@@ -444,9 +496,10 @@ def run_benchmark():
         if best_val_loss < best_overall_val_loss and best_model_weights is not None:
             best_overall_val_loss = best_val_loss
             best_seed_id = SEED
-            torch.save(best_model_weights, f"06_tfm_ptst_pytorch_best.pt")
+            torch.save(best_model_weights, output_pt_filename)
+            torch.save(best_model_weights, output_pt_dataset_filename)
             results_data["best_seed"] = int(SEED)
-            print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> 06_tfm_ptst_pytorch_best.pt")
+            print(f"  [Checkpoint] New overall best model saved from SEED {SEED} (Val Loss: {best_val_loss:.6f}) -> {output_pt_filename} & {output_pt_dataset_filename}")
 
         results_data["seeds"][str(SEED)] = {
             "training_time_seconds": seed_duration,
@@ -465,15 +518,18 @@ def run_benchmark():
         }
         with open(output_json_filename, "w", encoding="utf-8") as f:
             json.dump(results_data, f, indent=2)
-        print(f"Successfully saved SEED {SEED} results to {output_json_filename} (Runtime: {seed_duration}s)")
+        with open(output_json_dataset_filename, "w", encoding="utf-8") as f:
+            json.dump(results_data, f, indent=2)
+        print(f"Successfully saved SEED {SEED} results to {output_json_filename} & {output_json_dataset_filename} (Runtime: {seed_duration}s)")
         gc.collect()
 
     all_predictions["y_true"] = y_test_seq_unscaled.astype(np.float32)
     pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in SEEDS], axis=0)
     all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
     all_predictions["pred_std"] = np.std(pred_stack, axis=0).astype(np.float32)
-    np.savez_compressed(f"06_tfm_ptst_pytorch_predictions.npz", **all_predictions)
-    print(f"Successfully saved all seed predictions to 06_tfm_ptst_pytorch_predictions.npz")
+    np.savez_compressed(output_npz_filename, **all_predictions)
+    np.savez_compressed(output_npz_dataset_filename, **all_predictions)
+    print(f"Successfully saved all seed predictions to {output_npz_filename} & {output_npz_dataset_filename}")
 
     print(f"\n======================================================================")
     print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — 06_tfm_ptst_pytorch")
@@ -494,14 +550,26 @@ def run_benchmark():
     results_data["config"] = {
         "lookback": LOOKBACK,
         "horizon": HORIZON,
-        "batch_size": BATCH_SIZE if 'BATCH_SIZE' in globals() or 'BATCH_SIZE' in locals() else None,
-        "seeds": SEEDS if 'SEEDS' in globals() or 'SEEDS' in locals() else None,
+        "batch_size": BATCH_SIZE,
+        "d_model": D_MODEL,
+        "num_heads": NUM_HEADS,
+        "d_ff": D_FF,
+        "num_layers": NUM_LAYERS,
+        "patch_len": PATCH_LEN,
+        "stride": STRIDE,
+        "dropout_rate": DROPOUT_RATE,
+        "learning_rate": LEARNING_RATE,
+        "weight_decay": WEIGHT_DECAY,
+        "dataset": dataset_name_tag,
+        "seeds": SEEDS,
         "total_parameters": results_data.get("total_parameters", None)
     }
     results_data["summary"] = summary_dict
     with open(output_json_filename, "w", encoding="utf-8") as f:
         json.dump(results_data, f, indent=2)
-    print(f"Successfully saved final results to {output_json_filename}")
+    with open(output_json_dataset_filename, "w", encoding="utf-8") as f:
+        json.dump(results_data, f, indent=2)
+    print(f"Successfully saved final results to {output_json_filename} & {output_json_dataset_filename}")
     print(f"\nFinished running all {len(SEEDS)} SEEDs in PyTorch!")
 
 

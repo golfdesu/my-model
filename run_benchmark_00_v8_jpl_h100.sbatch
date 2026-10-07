@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# SLURM Job Script: Benchmark Model 00 v8 on NASA JPL V3
+# SLURM Job Script: Benchmark Model 00 v8 on ACN JPL V3
 # Architecture   : Model 00 v8 (Adaptive Gated Residual Readout + Composite Loss)
 # Target Hardware: compute4 node (NVIDIA H100 80GB HBM3) on 'gpu-h100'
-# Dataset Target : NASA JPL V3 (data_cleaned/acn_jpl_ready_v3.csv)
+# Dataset Target : ACN JPL V3 (data_cleaned/acn_jpl_ready_v3.csv)
 # Execution Mode : 10-Seed Multi-Seed Benchmark ([42, 123, 456, ..., 9999])
 # Output Target  : Root directory (.)
 # ==============================================================================
@@ -30,7 +30,7 @@ echo "Job Name            : $SLURM_JOB_NAME"
 echo "Start Time          : $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Working Directory   : $(pwd)"
 echo "Target Model        : Model 00 Custom Transformer v8"
-echo "Dataset Target      : NASA JPL V3 (${DATASET_TARGET})"
+echo "Dataset Target      : ACN JPL V3 (${DATASET_TARGET})"
 echo "Output Directory    : $(pwd) (Root)"
 echo "Unified Log File    : logs/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out"
 echo "=============================================================================="
@@ -88,7 +88,7 @@ TOTAL_START=$(date +%s)
 # 4. Execute Model 00 v8
 echo ""
 echo "=============================================================================="
-echo ">>> [STARTED] Model 00 v8 Benchmark on NASA JPL V3 at $(date '+%Y-%m-%d %H:%M:%S')"
+echo ">>> [STARTED] Model 00 v8 Benchmark on ACN JPL V3 at $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=============================================================================="
 
 python -u 00_tfm_custom_pytorch.py

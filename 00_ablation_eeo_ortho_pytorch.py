@@ -2,7 +2,7 @@
 # coding: utf-8
 
 """
-2x2 Factorial Ablation Study Engine for Model 00 (NASA JPL V3 & Caltech V3)
+2x2 Factorial Ablation Study Engine for Model 00 (ACN JPL V3 & Caltech V3)
 Investigates the individual and interaction effects of:
   1. EEO (Disentangled Endogenous / Exogenous Variate Projections)
   2. Orthogonal Regularization (Intra-Matrix Isometry + Inter-Head Diversity + EEO Cross-Subspace)
@@ -265,7 +265,7 @@ HORIZON = 48
 DATASET_CONFIGS = {
     'jpl': {
         'name_tag': 'acn_jpl_v3',
-        'display_name': 'NASA JPL V3',
+        'display_name': 'ACN JPL V3',
         'csv_candidates': [
             '../data_cleaned/acn_jpl_ready_v3.csv',
             'data_cleaned/acn_jpl_ready_v3.csv',

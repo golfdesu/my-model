@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# SLURM Job Script: 2x2 Factorial Ablation Study on NASA JPL V3
+# SLURM Job Script: 2x2 Factorial Ablation Study on ACN JPL V3
 # Investigates: EEO vs Orthogonal Regularization for Model 00 (Trial 19 Params)
 # Target Hardware: compute4 node (NVIDIA H100 80GB HBM3) on 'gpu-h100'
 # Execution Mode : 10-Seed Multi-Seed Evaluation for V2, V3, and V4 (V1 pre-computed)
@@ -29,7 +29,7 @@ echo "Job Name            : $SLURM_JOB_NAME"
 echo "Start Time          : $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Working Directory   : $(pwd)"
 echo "Target Task         : Model 00 2x2 Factorial Ablation Study (V2, V3, V4)"
-echo "Dataset Target      : NASA JPL V3 (${DATASET_TARGET})"
+echo "Dataset Target      : ACN JPL V3 (${DATASET_TARGET})"
 echo "Output Directory    : $(pwd) (Root)"
 echo "Unified Log File    : logs/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out"
 echo "=============================================================================="
@@ -84,7 +84,7 @@ python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA Available: {
 
 TOTAL_START=$(date +%s)
 
-# 4. Execute Ablation Engine for V2, V3, V4 on NASA JPL V3 (saving directly to root .)
+# 4. Execute Ablation Engine for V2, V3, V4 on ACN JPL V3 (saving directly to root .)
 echo ""
 echo "=============================================================================="
 echo ">>> [STARTED] Running JPL Ablation Engine (V2, V3, V4 across 10 Seeds each)..."

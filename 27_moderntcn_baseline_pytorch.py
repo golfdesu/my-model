@@ -68,19 +68,39 @@ if __name__ == '__main__':
 
 # ---------------------------------------------------------
 # 1. Data Loading & Preprocessing
-# ---------------------------------------------------------
-data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
+# Load and clean dataset (Dynamic Target: Caltech V3 / JPL V3)
+dataset_target = os.environ.get('DATASET_TARGET', 'acn_caltech_ready_v3')
+if 'caltech' in dataset_target.lower():
+    csv_candidates = [
+        '../data_cleaned/acn_caltech_ready_v3.csv',
+        'data_cleaned/acn_caltech_ready_v3.csv',
+        '../../data_cleaned/acn_caltech_ready_v3.csv',
+        'acn_caltech_ready_v3.csv',
+        '../data_cleaned/acn_caltech_ready2.csv',
+        'data_cleaned/acn_caltech_ready2.csv'
+    ]
+    dataset_name_tag = 'acn_caltech_v3'
+else:
+    csv_candidates = [
+        '../data_cleaned/acn_jpl_ready_v3.csv',
+        'data_cleaned/acn_jpl_ready_v3.csv',
+        '../../data_cleaned/acn_jpl_ready_v3.csv',
+        'acn_jpl_ready_v3.csv',
+        '../data_cleaned/acn_jpn_ready_v3.csv',
+        'data_cleaned/acn_jpn_ready_v3.csv'
+    ]
+    dataset_name_tag = 'acn_jpl'
 
+data_path = None
+for cand in csv_candidates:
+    if os.path.exists(cand):
+        data_path = cand
+        break
+
+if data_path is None:
+    raise FileNotFoundError(f"Could not locate dataset for target {dataset_target}")
+
+print(f"Loading dataset from: {data_path} (Target: {dataset_name_tag})")
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
@@ -396,24 +416,45 @@ def compute_metrics(actual, predicted, peak_threshold):
 # ---------------------------------------------------------
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
 MODEL_NAME = "27_moderntcn_baseline_pytorch"
-OUTPUT_DIR = f"outputs/{MODEL_NAME}"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+dataset_suffix = "_caltech" if "caltech" in dataset_name_tag.lower() else "_jpl"
+
+# Backbone Architecture Parameters (Capacity Parity)
+D_MODEL = 128
+NUM_LAYERS = 2
+PATCH_SIZE = 8
+PATCH_STRIDE = 4
+KERNEL_SIZE = 49
+FFN_RATIO = 1
+BATCH_SIZE = 32
+
+if 'jpl' in dataset_name_tag.lower() or 'jpn' in dataset_name_tag.lower():
+    # ACN JPL V3
+    DROPOUT       = 0.05
+    LEARNING_RATE = 0.00039724160713294304
+    WEIGHT_DECAY  = 4.015225458823769e-06
+    print("Loaded Parsimonious Parameters for ACN JPL V3")
+else:
+    # Caltech V3
+    DROPOUT       = 0.10
+    LEARNING_RATE = 0.0013695331891257908
+    WEIGHT_DECAY  = 9.345941326503106e-05
+    print("Loaded Parsimonious Parameters for Caltech V3")
 
 CONFIG = {
     "lookback": LOOKBACK,
     "num_features": num_total_features,
     "horizon": HORIZON,
     "target_idx": TARGET_CH_IDX,
-    "patch_size": 8,
-    "patch_stride": 4,
-    "d_model": 64,
-    "kernel_size": 49,
-    "num_layers": 1,
-    "ffn_ratio": 2,
-    "dropout": 0.2,
-    "learning_rate": 0.0015975802430087582,
-    "weight_decay": 0.00013661510961304665,
-    "batch_size": 64,
+    "patch_size": PATCH_SIZE,
+    "patch_stride": PATCH_STRIDE,
+    "d_model": D_MODEL,
+    "kernel_size": KERNEL_SIZE,
+    "num_layers": NUM_LAYERS,
+    "ffn_ratio": FFN_RATIO,
+    "dropout": DROPOUT,
+    "learning_rate": LEARNING_RATE,
+    "weight_decay": WEIGHT_DECAY,
+    "batch_size": BATCH_SIZE,
     "epochs": 200,
     "patience": 15
 }
@@ -536,12 +577,12 @@ if __name__ == '__main__':
     print(f"Starting Multi-Seed Benchmark for {MODEL_NAME} across {len(SEEDS)} seeds")
     print("=" * 70)
 
-    output_json_filename = os.path.join(OUTPUT_DIR, f"{MODEL_NAME}_results.json")
-    output_pt_filename   = os.path.join(OUTPUT_DIR, f"{MODEL_NAME}_best.pt")
-    output_npz_filename  = os.path.join(OUTPUT_DIR, f"{MODEL_NAME}_predictions.npz")
-    root_json_filename   = f"{MODEL_NAME}_results.json"
-    root_pt_filename     = f"{MODEL_NAME}_best.pt"
-    root_npz_filename    = f"{MODEL_NAME}_predictions.npz"
+    output_json_filename = f"{MODEL_NAME}_results.json"
+    output_json_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_results.json"
+    output_pt_filename   = f"{MODEL_NAME}_best.pt"
+    output_pt_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_best.pt"
+    output_npz_filename  = f"{MODEL_NAME}_predictions.npz"
+    output_npz_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_predictions.npz"
 
     results_data = {
         "model_name": MODEL_NAME,
@@ -586,9 +627,9 @@ if __name__ == '__main__':
             best_seed_id = seed
             best_overall_weights = res["model_weights"]
             torch.save(best_overall_weights, output_pt_filename)
-            torch.save(best_overall_weights, root_pt_filename)
+            torch.save(best_overall_weights, output_pt_dataset_filename)
             results_data["best_seed"] = int(seed)
-            print(f"  [Checkpoint] New overall best model saved from SEED {seed} (Val Loss: {best_overall_val_loss:.6f}) -> {output_pt_filename}")
+            print(f"  [Checkpoint] New overall best model saved from SEED {seed} (Val Loss: {best_overall_val_loss:.6f}) -> {output_pt_filename} & {output_pt_dataset_filename}")
 
         results_data["seeds"][str(seed)] = {
             "training_time_seconds": elapsed,
@@ -615,8 +656,8 @@ if __name__ == '__main__':
     all_predictions["pred_std"]  = np.std(pred_stack,  axis=0).astype(np.float32)
 
     np.savez_compressed(output_npz_filename, **all_predictions)
-    np.savez_compressed(root_npz_filename, **all_predictions)
-    print(f"Successfully saved all seed predictions to {output_npz_filename} and {root_npz_filename}")
+    np.savez_compressed(output_npz_dataset_filename, **all_predictions)
+    print(f"Successfully saved all seed predictions to {output_npz_filename} & {output_npz_dataset_filename}")
 
     print("\n" + "=" * 70)
     print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — {MODEL_NAME}")
@@ -639,8 +680,8 @@ if __name__ == '__main__':
 
     with open(output_json_filename, 'w', encoding='utf-8') as f:
         json.dump(results_data, f, indent=2)
-    with open(root_json_filename, 'w', encoding='utf-8') as f:
+    with open(output_json_dataset_filename, 'w', encoding='utf-8') as f:
         json.dump(results_data, f, indent=2)
 
-    print(f"\nArtifacts successfully saved to {OUTPUT_DIR} and current directory")
+    print(f"\nArtifacts successfully saved to {output_json_filename} & {output_json_dataset_filename}")
     print(f"Finished running all {len(SEEDS)} SEEDs for {MODEL_NAME}!")

@@ -38,19 +38,39 @@ except Exception:
 
 # ---------------------------------------------------------------
 # Data Loading & Preprocessing (same path auto-detect and split as other scripts)
-# ---------------------------------------------------------------
-data_path = '../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../../data_cleaned/acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'acn_jpl_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = '../data_cleaned/acn_jpn_ready_v3.csv'
-if not os.path.exists(data_path):
-    data_path = 'data_cleaned/acn_jpn_ready_v3.csv'
+# Load and clean dataset (Dynamic Target: Caltech V3 / JPL V3)
+dataset_target = os.environ.get('DATASET_TARGET', 'acn_caltech_ready_v3')
+if 'caltech' in dataset_target.lower():
+    csv_candidates = [
+        '../data_cleaned/acn_caltech_ready_v3.csv',
+        'data_cleaned/acn_caltech_ready_v3.csv',
+        '../../data_cleaned/acn_caltech_ready_v3.csv',
+        'acn_caltech_ready_v3.csv',
+        '../data_cleaned/acn_caltech_ready2.csv',
+        'data_cleaned/acn_caltech_ready2.csv'
+    ]
+    dataset_name_tag = 'acn_caltech_v3'
+else:
+    csv_candidates = [
+        '../data_cleaned/acn_jpl_ready_v3.csv',
+        'data_cleaned/acn_jpl_ready_v3.csv',
+        '../../data_cleaned/acn_jpl_ready_v3.csv',
+        'acn_jpl_ready_v3.csv',
+        '../data_cleaned/acn_jpn_ready_v3.csv',
+        'data_cleaned/acn_jpn_ready_v3.csv'
+    ]
+    dataset_name_tag = 'acn_jpl'
 
+data_path = None
+for cand in csv_candidates:
+    if os.path.exists(cand):
+        data_path = cand
+        break
+
+if data_path is None:
+    raise FileNotFoundError(f"Could not locate dataset for target {dataset_target}")
+
+print(f"Loading dataset from: {data_path} (Target: {dataset_name_tag})")
 df = pd.read_csv(data_path)
 df['connectionTime'] = pd.to_datetime(df['connectionTime'])
 df = df.set_index('connectionTime')
@@ -177,26 +197,55 @@ def compute_metrics(actual, predicted, peak_threshold):
 # Hyperparameters chosen to roughly mirror the LightGBM baseline's settings
 # (n_estimators, learning_rate, subsampling) for a fair boosting-library comparison.
 # ---------------------------------------------------------------
+# Dataset-Specific Parsimonious Hyperparameters
+if 'jpl' in dataset_name_tag.lower() or 'jpn' in dataset_name_tag.lower():
+    # ACN JPL V3
+    LEARNING_RATE    = 0.019302364060748006
+    MAX_DEPTH        = 5
+    MIN_CHILD_WEIGHT = 3.730313948759864
+    SUBSAMPLE        = 0.5993562807119999
+    COLSAMPLE_BYTREE = 0.8751647183860229
+    REG_ALPHA        = 1.8386777531998297
+    REG_LAMBDA       = 1.2303752130248193
+    print("Loaded Parsimonious Parameters for ACN JPL V3")
+else:
+    # Caltech V3
+    LEARNING_RATE    = 0.09630276585598742
+    MAX_DEPTH        = 5
+    MIN_CHILD_WEIGHT = 6.722196570662773
+    SUBSAMPLE        = 0.548292860681018
+    COLSAMPLE_BYTREE = 0.5020346162094566
+    REG_ALPHA        = 8.114659773907153
+    REG_LAMBDA       = 6.470480796341733
+    print("Loaded Parsimonious Parameters for Caltech V3")
+
 XGB_PARAMS = dict(
     objective='reg:squarederror',
     eval_metric='mae',
     n_estimators=1000,
-    learning_rate=0.019302364060748006,
-    max_depth=5,            # XGBoost uses max_depth rather than LightGBM's num_leaves
-    min_child_weight=3.730313948759864,
-    subsample=0.5993562807119999,
-    colsample_bytree=0.8751647183860229,
-    reg_alpha=1.8386777531998297,
-    reg_lambda=1.2303752130248193,
+    learning_rate=LEARNING_RATE,
+    max_depth=MAX_DEPTH,
+    min_child_weight=MIN_CHILD_WEIGHT,
+    subsample=SUBSAMPLE,
+    colsample_bytree=COLSAMPLE_BYTREE,
+    reg_alpha=REG_ALPHA,
+    reg_lambda=REG_LAMBDA,
     random_state=42,
     n_jobs=-1,
-    tree_method='hist',     # fast histogram-based method, comparable to LightGBM's default
+    tree_method='hist',
     device=xgb_device,
     verbosity=0,
 )
 EARLY_STOPPING_ROUNDS = 50
 
 SEEDS = [42, 123, 456, 789, 1024, 2024, 2025, 2026, 3407, 9999]
+
+MODEL_NAME = "17_xgboost_baseline"
+dataset_suffix = "_caltech" if "caltech" in dataset_name_tag.lower() else "_jpl"
+output_json_filename = f"{MODEL_NAME}_results.json"
+output_json_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_results.json"
+output_npz_filename = f"{MODEL_NAME}_predictions.npz"
+output_npz_dataset_filename = f"{MODEL_NAME}{dataset_suffix}_predictions.npz"
 
 print(f"Starting Direct Multi-Output XGBoost ({HORIZON} models per seed) for {len(SEEDS)} seeds...")
 
@@ -280,15 +329,18 @@ for seed_idx, SEED in enumerate(SEEDS, 1):
     }
     with open(output_json_filename, "w", encoding="utf-8") as f:
         json.dump(results_data, f, indent=2)
-    print(f"Successfully saved SEED {SEED} results to {output_json_filename} (Runtime: {seed_duration}s)")
+    with open(output_json_dataset_filename, "w", encoding="utf-8") as f:
+        json.dump(results_data, f, indent=2)
+    print(f"Successfully saved SEED {SEED} results to {output_json_filename} & {output_json_dataset_filename} (Runtime: {seed_duration}s)")
     gc.collect()
 
 all_predictions["y_true"] = y_test_multi.astype(np.float32)
 pred_stack = np.stack([all_predictions[f"seed_{s}"] for s in SEEDS], axis=0)
 all_predictions["pred_mean"] = np.mean(pred_stack, axis=0).astype(np.float32)
 all_predictions["pred_std"] = np.std(pred_stack, axis=0).astype(np.float32)
-np.savez_compressed(f"17_xgboost_baseline_predictions.npz", **all_predictions)
-print(f"Successfully saved all seed predictions to 17_xgboost_baseline_predictions.npz")
+np.savez_compressed(output_npz_filename, **all_predictions)
+np.savez_compressed(output_npz_dataset_filename, **all_predictions)
+print(f"Successfully saved all seed predictions to {output_npz_filename} & {output_npz_dataset_filename}")
 
 print(f"\n======================================================================")
 print(f"FINAL SUMMARY ACROSS {len(SEEDS)} SEEDS — 17_xgboost_baseline")
